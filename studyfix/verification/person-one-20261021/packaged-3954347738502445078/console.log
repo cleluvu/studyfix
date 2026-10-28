@@ -1,0 +1,33 @@
+Nhập IP server, Enter để dùng 127.0.0.1: Username (teacher / student1 / student2): Password (console test, có thể hiện ký tự nhập): [LOGIN_OK] session=0c14e0ac-5406-4b12-b092-a014536614d2 userId=11c9149a-268a-42be-85c9-e46334f7172e role=TEACHER | Giáo viên demo
+Đã kết nối tới StudyFix Server 127.0.0.1:56656
+/create | /join mã_phòng | /members | /leave | /chat nội_dung | /code | /lines | /history [version] | /request | /release token | /select version token 2,5,8 hoặc 4-7 | /setline token dòng nội_dung | /delete token dòng | /keep token dòng | /rangefile token đường_dẫn | /deleterange token | /keeprange token | /draft token | /finish token | /cancel token | /load version token đường_dẫn (chủ phòng) | /quit
+[Hệ thống] Giáo viên demo đã vào phòng 1.
+[Thành viên] Giáo viên demo
+Đã tạo và tham gia phòng: 1
+[Phòng 1] version=0, editor=không có, token=0, hàng đợi=[]
+--- CODE CHUNG ---
+public class Main {
+    public static int sum(int[] a) {
+        int total = 0;
+        for (int i = 0; i <= a.length; i++) {
+            total += a[i];
+        }
+        return total;
+    }
+}
+
+[Phòng 1] version=0, editor=Giáo viên demo, token=1, hàng đợi=[]
+[Phòng 1] version=0, editor=Giáo viên demo, token=1, hàng đợi=[]
+--- CODE CHUNG ---
+public class Main {
+    public static int sum(int[] a) {
+        int total = 0;
+        for (int i = 0; i <= a.length; i++) {
+            total += a[i];
+        }
+        return total;
+    }
+}
+
+Thành viên phòng 1: [0c14e0ac-5406-4b12-b092-a014536614d2 | Giáo viên demo]
+Client đã kết thúc.

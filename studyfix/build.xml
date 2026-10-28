@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- You may freely edit this file. See commented blocks below for -->
+<!-- some examples of how to customize the build. -->
+<!-- (If you delete it and reopen the project it will be recreated.) -->
+<!-- By default, only the Clean and Build commands use this build script. -->
+<!-- Commands such as Run, Debug, and Test only use this build script if -->
+<!-- the Compile on Save feature is turned off for the project. -->
+<!-- You can turn off the Compile on Save (or Deploy on Save) setting -->
+<!-- in the project's Project Properties dialog box.-->
+<project xmlns:if="ant:if" xmlns:unless="ant:unless" name="studyfix" default="default" basedir=".">
+    <description>Builds, tests, and runs the project studyfix.</description>
+    <import file="nbproject/build-impl.xml"/>
+    <!-- NetBeans compiler hook: release 26; keep generated build-impl.xml intact. -->
+    <target depends="-init-ap-cmdline-properties,-init-source-module-properties" if="modules.supported.internal" name="-init-macrodef-javac-with-module">
+        <macrodef name="javac" uri="http://www.netbeans.org/ns/j2se-project/3">
+            <attribute default="${src.dir}" name="srcdir"/>
+            <attribute default="${build.classes.dir}" name="destdir"/>
+            <attribute default="${javac.classpath}" name="classpath"/>
+            <attribute default="${javac.modulepath}" name="modulepath"/>
+            <attribute default="${javac.upgrademodulepath}" name="upgrademodulepath"/>
+            <attribute default="${javac.processorpath}" name="processorpath"/>
+            <attribute default="${javac.processormodulepath}" name="processormodulepath"/>
+            <attribute default="${build.generated.sources.dir}/ap-source-output" name="apgeneratedsrcdir"/>
+            <attribute default="${includes}" name="includes"/>
+            <attribute default="${excludes}" name="excludes"/>
+            <attribute default="${javac.debug}" name="debug"/>
+            <attribute default="${empty.dir}" name="sourcepath" unless:set="named.module.internal"/>
+            <attribute default="${src.dir}" if:set="named.module.internal" name="sourcepath"/>
+            <attribute default="${empty.dir}" name="gensrcdir"/>
+            <element name="customize" optional="true"/>
+            <sequential>
+                <condition property="warn.excludes.internal">
+                    <and>
+                        <isset property="named.module.internal"/>
+                        <length length="0" string="@{excludes}" trim="true" when="greater"/>
+                    </and>
+                </condition>
+                <echo if:set="warn.excludes.internal" level="warning" message="The javac excludes are not supported in the JDK 9 Named Module."/>
+                <property location="${build.dir}/empty" name="empty.dir"/>
+                <mkdir dir="${empty.dir}"/>
+                <mkdir dir="@{apgeneratedsrcdir}"/>
+                <condition property="processormodulepath.set">
+                    <resourcecount count="0" when="greater">
+                        <path>
+                            <pathelement path="@{processormodulepath}"/>
+                        </path>
+                    </resourcecount>
+                </condition>
+                <javac debug="@{debug}" deprecation="${javac.deprecation}" destdir="@{destdir}" encoding="${source.encoding}" excludes="@{excludes}" fork="${javac.fork}" includeantruntime="false" includes="@{includes}" release="${javac.release}" sourcepath="@{sourcepath}" srcdir="@{srcdir}" tempdir="${java.io.tmpdir}">
+                    <src>
+                        <dirset dir="@{gensrcdir}" erroronmissingdir="false">
+                            <include name="*"/>
+                        </dirset>
+                    </src>
+                    <classpath>
+                        <path path="@{classpath}"/>
+                    </classpath>
+                    <modulepath>
+                        <path path="@{modulepath}"/>
+                    </modulepath>
+                    <upgrademodulepath>
+                        <path path="@{upgrademodulepath}"/>
+                    </upgrademodulepath>
+                    <compilerarg line="${javac.systemmodulepath.cmd.line.arg}"/>
+                    <compilerarg line="${javac.profile.cmd.line.arg}"/>
+                    <compilerarg line="${javac.compilerargs}"/>
+                    <compilerarg if:set="processormodulepath.set" value="--processor-module-path"/>
+                    <compilerarg if:set="processormodulepath.set" path="@{processormodulepath}"/>
+                    <compilerarg unless:set="processormodulepath.set" value="-processorpath"/>
+                    <compilerarg path="@{processorpath}:${empty.dir}" unless:set="processormodulepath.set"/>
+                    <compilerarg line="${ap.processors.internal}"/>
+                    <compilerarg line="${annotation.processing.processor.options}"/>
+                    <compilerarg value="-s"/>
+                    <compilerarg path="@{apgeneratedsrcdir}"/>
+                    <compilerarg line="${ap.proc.none.internal}"/>
+                    <customize/>
+                </javac>
+            </sequential>
+        </macrodef>
+    </target>
+    <target name="integration-test" depends="jar" description="Java 26 compile + real TCP/SQLite tests on localhost">
+        <mkdir dir="${build.dir}/integration-classes"/>
+        <javac srcdir="src" destdir="${build.dir}/integration-classes" release="26" encoding="UTF-8" includeantruntime="false">
+            <classpath path="${javac.classpath}"/>
+        </javac>
+        <javac srcdir="test" destdir="${build.dir}/integration-classes" release="26" encoding="UTF-8" includeantruntime="false">
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        </javac>
+        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+        <java classname="studyfix.RecoveryTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+        <java classname="studyfix.HistoryTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+        <java classname="studyfix.IntegrationTest" fork="true" failonerror="true" timeout="120000">
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+        </java>
+        <java classname="studyfix.ScreenShareRelayIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+        </java>
+        <java classname="studyfix.ConsoleHistoryInterleaveTest" fork="true" failonerror="true" timeout="30000">
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        </java>
+        <java classname="studyfix.ConsoleClientTest" fork="true" failonerror="true" timeout="60000">
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        </java>
+    </target>
+    <target name="edit-session-test" depends="jar" description="Isolated EditSession, framed TCP/SQLite and actual console rangefile regressions">
+        <mkdir dir="${build.dir}/edit-session-classes"/>
+        <javac srcdir="test" destdir="${build.dir}/edit-session-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
+            <classpath path="${javac.classpath};${build.classes.dir}"/>
+        </javac>
+        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/edit-session-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+    </target>
+    <!--
+
+    There exist several targets which are by default empty and which can be 
+    used for execution of your tasks. These targets are usually executed 
+    before and after some main targets. They are: 
+
+      -pre-init:                 called before initialization of project properties
+      -post-init:                called after initialization of project properties
+      -pre-compile:              called before javac compilation
+      -post-compile:             called after javac compilation
+      -pre-compile-single:       called before javac compilation of single file
+      -post-compile-single:      called after javac compilation of single file
+      -pre-compile-test:         called before javac compilation of JUnit tests
+      -post-compile-test:        called after javac compilation of JUnit tests
+      -pre-compile-test-single:  called before javac compilation of single JUnit test
+      -post-compile-test-single: called after javac compilation of single JUunit test
+      -pre-jar:                  called before JAR building
+      -post-jar:                 called after JAR building
+      -post-clean:               called after cleaning build products
+
+    (Targets beginning with '-' are not intended to be called on their own.)
+
+    Example of inserting an obfuscator after compilation could look like this:
+
+        <target name="-post-compile">
+            <obfuscate>
+                <fileset dir="${build.classes.dir}"/>
+            </obfuscate>
+        </target>
+
+    For list of available properties check the imported 
+    nbproject/build-impl.xml file. 
+
+
+    Another way to customize the build is by overriding existing main targets.
+    The targets of interest are: 
+
+      -init-macrodef-javac:     defines macro for javac compilation
+      -init-macrodef-junit:     defines macro for junit execution
+      -init-macrodef-debug:     defines macro for class debugging
+      -init-macrodef-java:      defines macro for class execution
+      -do-jar:                  JAR building
+      run:                      execution of project 
+      -javadoc-build:           Javadoc generation
+      test-report:              JUnit report generation
+
+    An example of overriding the target for project execution could look like this:
+
+        <target name="run" depends="studyfix-impl.jar">
+            <exec dir="bin" executable="launcher.exe">
+                <arg file="${dist.jar}"/>
+            </exec>
+        </target>
+
+    Notice that the overridden target depends on the jar target and not only on 
+    the compile target as the regular run target does. Again, for a list of available 
+    properties which you can use, check the target you are overriding in the
+    nbproject/build-impl.xml file. 
+
+    -->
+</project>
+
+

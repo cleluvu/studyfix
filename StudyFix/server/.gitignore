@@ -4,3 +4,9 @@
 /nbproject/private/
 *.db-wal
 *.db-shm
+
+# Generated launcher build files
+/build-launcher/
+
+# Local build and diagnostic logs
+*.log

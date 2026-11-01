@@ -1,11 +1,12 @@
 // Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
 
-import { state } from "./state.js";
+import { state, rememberView } from "./state.js";
 import { api, assignment } from "./api.js";
 import { toast, fail } from "../ui/toast.js";
 import { render } from "../ui/render.js";
 import { loadClassroom } from "../features/classroom/classroom.js";
-import { pollCall } from "../features/classroom/call.js";
+import { pollCall, leaveCall } from "../features/classroom/call.js";
+import { loadChat } from "../features/classroom/chat-notifications.js";
 
 // --- Small dependency-injection hooks -------------------------------------
 // features/auth/auth.js and features/screen-share/screen-share.js both need to
@@ -13,6 +14,8 @@ import { pollCall } from "../features/classroom/call.js";
 // (that would create an import cycle, since both of them import from here).
 // They register a callback instead; see the bottom of each of those files.
 let roomJoinedHandler = null;
+let practiceHandlers=null;
+export function setPracticeHandlers(handlers){practiceHandlers=handlers;}
 export function setRoomJoinedHandler(fn) {
   roomJoinedHandler = fn;
 }
@@ -23,9 +26,14 @@ export function setScreenSignalHandler(fn) {
 }
 
 
+let currentRoomRequest=0;
+export function invalidateRoomRequests(){++currentRoomRequest;}
 export async function loadCurrentRoom(showErrors = true) {
+  if(state.roomLeaving)return null;
+  const request=++currentRoomRequest,token=state.token;
   try {
     const res = await api("/api/rooms/current");
+    if(request!==currentRoomRequest||token!==state.token||state.roomLeaving)return state.room;
     const next = res.room;
     const changed =
       !state.room ||
@@ -43,6 +51,7 @@ export async function loadCurrentRoom(showErrors = true) {
     if (changed && state.page === "room" && !state.codeDirty) render();
     return next;
   } catch (e) {
+    if(request!==currentRoomRequest||token!==state.token||state.roomLeaving)return state.room;
     if (e.status === 401 || e.status === 409) {
       state.room = null;
       state.roomId = "";
@@ -53,12 +62,29 @@ export async function loadCurrentRoom(showErrors = true) {
   }
 }
 
+let roomDirectoryRequest=0;
+export async function handleDeletedRoom(id) {
+  if (String(state.room?.roomId||state.roomId||"")!==String(id)) return;
+  invalidateRoomRequests();
+  state.meetingClosed=true;
+  state.room=null;state.roomId="";state.classroom=null;state.page="overview";
+  await leaveCall(false);
+  if(screenSignalHandler)await screenSignalHandler({kind:"ROOM_CLOSED"});
+  toast("Chủ phòng đã xóa phòng. Bạn đã trở về Tổng quan.","info");
+}
 export async function loadRooms() {
+  const request=++roomDirectoryRequest,token=state.token,search=state.roomSearch||"";
   try {
-    const res = await api("/api/rooms");
+    const res = await api(`/api/rooms?page=${state.roomPage||1}&pageSize=5&q=${encodeURIComponent(search)}`);
+    if(request!==roomDirectoryRequest||token!==state.token||search!==(state.roomSearch||""))return false;
+    const previous=JSON.stringify([state.rooms,state.roomsTotal,state.roomPage,state.roomsError,state.customRoomCodes]);
     state.rooms = res.rooms || [];
-  } catch (_) {
-    state.rooms = [];
+    state.roomPage=res.page||1;state.roomsTotal=res.total??state.rooms.length;state.roomsTotalPages=res.totalPages||1;
+    state.customRoomCodes=res.customRoomCodes===true;state.manualRoomDelete=res.manualRoomDelete===true;state.roomsError="";
+    return previous!==JSON.stringify([state.rooms,state.roomsTotal,state.roomPage,state.roomsError,state.customRoomCodes]);
+  } catch (e) {
+    if(request!==roomDirectoryRequest||token!==state.token||search!==(state.roomSearch||""))return false;
+    const changed=state.roomsError!==e.message;state.roomsError=e.message;return changed;
   }
 }
 
@@ -126,10 +152,15 @@ export async function loadContests() {
 
 export async function loadPageData() {
   if (!state.identity) return;
+  if(state.page==="exercises"&&state.exerciseMode!=="room") {
+    if(practiceHandlers)await practiceHandlers.load();
+    render();return;
+  }
   if (!state.room) {
     await loadRooms();
     return;
   }
+  try {await loadChat();}catch(e){console.warn("Chat sync failed",e);}
   if (state.page === "overview" || state.page === "room") {
     await loadAssignments();
     if (state.page === "room") {
@@ -166,6 +197,8 @@ export function startPolling() {
       for (const ev of events) {
         state.eventCursor = Math.max(state.eventCursor, Number(ev.id || 0));
         receiveEvent(ev);
+        const deleted=String(ev.message||"").trim().match(/^\[ROOM_DELETED\] (\d+)$/);
+        if(deleted)await handleDeletedRoom(deleted[1]);
         if (
           /version=|\[COMMITTED\]|\[TEACHER_TAKEOVER\]|\[Thành viên\]|đã vào phòng|đã rời phòng|\[CANCELLED\]/i.test(
             ev.message || "",
@@ -174,8 +207,11 @@ export function startPolling() {
           mustRefresh = true;
       }
       if (!state.room && state.roomId) await loadCurrentRoom(false);
+      let chatChanged=false;
+      if(state.room)try {chatChanged=await loadChat();}catch(e){console.warn("Chat sync failed",e);}
+      const roomsChanged=state.page==="overview"?await loadRooms():false;
       if(state.room)try {await pollCall();} catch(e) {state.callError=e.message;}
-      const sig = state.room ? await api(`/api/screen/signals?after=${state.screenCursor}`) : { signals: [] };
+      const sig = state.room&&!state.meetingClosed ? await api(`/api/screen/signals?after=${state.screenCursor}`) : { signals: [] };
       for (const msg of sig.signals || []) {
         state.screenCursor = Math.max(state.screenCursor, Number(msg.id || 0));
         if (screenSignalHandler) await screenSignalHandler(msg);
@@ -192,7 +228,8 @@ export function startPolling() {
         if (state.room) await loadClassroom();
       }
       if (state.activeSubmissionPoll) await pollSubmissionResult();
-      if (events.length || (state.page === "room" && mustRefresh)) render();
+      const practiceChanged=practiceHandlers?await practiceHandlers.poll():false;
+      if (practiceChanged||roomsChanged || chatChanged || events.length || (state.page === "room" && mustRefresh)) render();
     } catch (e) {
       if (state.token && /Phiên|kết nối/i.test(e.message))
         toast(e.message, "error");
@@ -212,13 +249,8 @@ export function receiveEvent(ev) {
   state.roomEvents = state.roomEvents.slice(0, 30);
   const match = text.match(/^\[Phòng [^\]]+\]\s+([^:]{1,90}):\s*([\s\S]*)$/);
   if (match && !/^Server$/i.test(match[1].trim())) {
-    state.chatItems.push({
-      name: match[1].trim(),
-      text: match[2],
-      timestamp: ev.timestamp || Date.now(),
-      system: false,
-    });
-    state.chatItems = state.chatItems.slice(-80);
+    // Persisted chat IDs/author IDs are synced by loadChat; don't duplicate TCP events.
+    return;
   } else if (
     /\[Hệ thống\]|\[TEACHER_TAKEOVER\]|\[COMMITTED\]|\[CANCELLED\]|\[SAVE_FAILED\]|Không tìm thấy phòng|Đã tham gia phòng|Đã tạo và tham gia phòng|version=/.test(
       text,
@@ -260,8 +292,11 @@ export async function refreshEverything() {
 }
 
 export async function navigate(page) {
-  state.page = page;
-  if (page !== "room") state.roomTab = "code";
+  if(page==="exercises")state.exerciseMode="practice";
+  state.page = page === "room" && !state.room ? "overview" : page;
+  if(state.page==="room")state.meetingClosed=false;
+  rememberView();
+  if (state.page !== "room") state.roomTab = "code";
   await loadPageData();
   render();
   document.querySelector(".sidebar")?.classList.remove("open");

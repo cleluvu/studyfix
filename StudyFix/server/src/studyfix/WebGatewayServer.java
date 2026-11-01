@@ -32,9 +32,9 @@ import java.util.regex.Pattern;
  */
 public final class WebGatewayServer implements AutoCloseable {
     private static final int MAX_BODY_BYTES = 128 * 1024;
-    private static final long SESSION_TTL_MILLIS = TimeUnit.HOURS.toMillis(12);
+    private static final long SESSION_TTL_MILLIS = TimeUnit.MINUTES.toMillis(2);
     private static final Set<String> ASSIGNMENT_TYPES = Set.of(
-            "PING", "CATALOG_LIST", "CATALOG_GET", "ROOM_STUDENTS_LIST", "CLASS_PROGRESS",
+            "PING", "PRACTICE_LIST", "PRACTICE_GET", "PRACTICE_SUBMIT", "PRACTICE_RUN", "PRACTICE_SUBMISSIONS", "PRACTICE_RESULT", "CATALOG_LIST", "CATALOG_GET", "ROOM_STUDENTS_LIST", "CLASS_PROGRESS",
             "ASSIGN_CREATE", "ASSIGN_LIST", "ASSIGN_GET", "DEBUG_STARTER_PREPARE", "DEBUG_STARTER_LOAD",
             "SHARED_CODE_STATE", "SHARED_CHECK_CREATE", "SHARED_CHECK_LATEST", "SHARED_CHECK_STATUS",
             "SHARED_CHECK_RESULT", "SUBMIT_CREATE", "SUBMISSION_LIST", "SUBMISSION_RESULT",
@@ -79,7 +79,7 @@ public final class WebGatewayServer implements AutoCloseable {
         Path fallback = Path.of(System.getProperty("studyfix.web.root", "../web-client/static")).toAbsolutePath().normalize();
         this.staticRoot = Files.isRegularFile(dist.resolve("index.html")) ? dist : fallback;
         classroom = new ClassroomService(core, assignments::classroomExercise, sandbox);
-        scheduler.scheduleWithFixedDelay(this::cleanup, 1, 1, TimeUnit.MINUTES);
+        scheduler.scheduleWithFixedDelay(this::cleanup, 15, 15, TimeUnit.SECONDS);
     }
 
     private static String envOrDefault(String name, String fallback) {
@@ -171,14 +171,24 @@ public final class WebGatewayServer implements AutoCloseable {
         if (path.equals("/api/auth/logout") && method.equals("POST")) { WebSession s = requireSession(ex); closeSession(s); json(ex, 200, Map.of("ok", true)); return; }
 
         WebSession s = requireSession(ex);
-        s.lastSeen = System.currentTimeMillis();
+        s.touch();
+        if(path.equals("/api/auth/departing")&&method.equals("POST")) {
+            long generation=s.departureGeneration.incrementAndGet();
+            s.departure=scheduler.schedule(()->{if(s.departureGeneration.get()==generation)closeSession(s);},8,TimeUnit.SECONDS);
+            json(ex,200,map("ok",true));return;
+        }
         if (path.equals("/api/me") && method.equals("GET")) {
             String roomId = currentRoomId(s);
-            json(ex, 200, map("ok", true, "identity", identityMap(s.identity), "peerId", s.peerId, "roomId", roomId)); return;
+            Room current=roomId.isBlank()?null:core.rooms.get(roomId);
+            json(ex, 200, map("ok", true, "identity", identityMap(s.identity), "peerId", s.peerId, "roomId", roomId,"roomCode",current==null?"":current.getRoomCode())); return;
         }
         if (path.equals("/api/rooms") && method.equals("GET")) { rooms(ex, s); return; }
         if (path.equals("/api/rooms/current") && method.equals("GET")) { currentRoom(ex, s); return; }
         if (path.equals("/api/rooms/current/history") && method.equals("GET")) { roomHistory(ex, s); return; }
+        if (path.equals("/api/rooms/current/chat") && method.equals("GET")) {
+            Room room=requireCurrentRoom(s);
+            json(ex,200,new ClassroomRepository(core.store()).chatStatus(room.getRoomId(),s.identity.userId(),queryLong(ex.getRequestURI(),"after",0)));return;
+        }
         if (path.equals("/api/rooms/current/command") && method.equals("POST")) { roomCommand(ex, s); return; }
         if (path.equals("/api/classroom") && (method.equals("GET") || method.equals("POST"))) {
             Room room = requireCurrentRoom(s);
@@ -245,16 +255,24 @@ public final class WebGatewayServer implements AutoCloseable {
     }
 
     private void rooms(HttpExchange ex, WebSession s) throws IOException {
+        String search=queryText(ex.getRequestURI(),"q").strip();
+        if(search.length()>160)throw new IllegalArgumentException("Từ khóa tìm phòng tối đa 160 ký tự.");
+        String needle=roomSearchKey(search);
         List<Map<String,Object>> result = new ArrayList<>();
-        if (s.identity.role() == Identity.Role.TEACHER) {
             for (Room room : core.rooms.values()) {
                 Room.Snapshot snap = room.snapshot();
-                result.add(map("roomId", snap.roomId(), "ownerId", snap.ownerId(), "version", snap.version(),
+                if(room.isExpired())continue;
+                if(!roomSearchKey(room.getRoomCode()).contains(needle)
+                        &&!roomSearchKey("Phòng "+room.getRoomCode()).contains(needle))continue;
+                result.add(map("roomId", snap.roomId(),"roomCode",room.getRoomCode(), "ownerId", snap.ownerId(), "version", snap.version(),
                         "memberCount", snap.members().size(), "online", true, "isMine", snap.ownerId().equals(s.identity.userId())));
             }
-            result.sort(Comparator.comparing(r -> String.valueOf(r.get("roomId"))));
-        }
-        json(ex, 200, map("ok", true, "rooms", result, "role", s.identity.role().name()));
+        result.sort(Comparator.comparing(r -> RoomCode.key(String.valueOf(r.get("roomCode")))));
+        int pageSize=5;
+        int total=result.size(),totalPages=Math.max(1,(total+pageSize-1)/pageSize);
+        int page=(int)Math.max(1,Math.min(totalPages,queryLong(ex.getRequestURI(),"page",1)));
+        int from=(page-1)*pageSize,to=Math.min(total,from+pageSize);
+        json(ex, 200, map("ok", true, "rooms", result.subList(from,to), "role", s.identity.role().name(),"total",total,"page",page,"pageSize",pageSize,"totalPages",totalPages,"customRoomCodes",true,"emptyRoomAutoDelete",false,"manualRoomDelete",true));
     }
 
     private String currentRoomId(WebSession session) {
@@ -292,7 +310,7 @@ public final class WebGatewayServer implements AutoCloseable {
         String editorPeerId = "";
         WebSession editor = snap.editor() == null ? null : sessionsByCoreId.get(snap.editor());
         if (editor != null) editorPeerId = editor.peerId;
-        json(ex, 200, map("ok", true, "room", map("roomId", snap.roomId(), "ownerId", snap.ownerId(),
+        json(ex, 200, map("ok", true, "room", map("roomId", snap.roomId(),"roomCode",room.getRoomCode(), "ownerId", snap.ownerId(),
                 "code", snap.code(), "version", snap.version(), "editorPeerId", editorPeerId,
                 "token", Objects.equals(snap.editor(), s.coreSessionId) ? snap.token() : 0L,
                 "recoverableDraft", recoveryView,
@@ -310,7 +328,7 @@ public final class WebGatewayServer implements AutoCloseable {
         json(ex, 200, map("ok", true, "history", history));
     }
 
-    private void roomCommand(HttpExchange ex, WebSession s) throws IOException {
+    private void roomCommand(HttpExchange ex, WebSession s) throws Exception {
         Map<String,Object> body = readBody(ex);
         String action = text(body, "action", "").toUpperCase(Locale.ROOT);
         if (action.equals("ACK_DRAFT_RECOVERY")) {
@@ -324,19 +342,34 @@ public final class WebGatewayServer implements AutoCloseable {
             case "CREATE_ROOM" -> {
                 if (s.identity.role() != Identity.Role.TEACHER) throw new ApiException(403, "FORBIDDEN", "Chỉ giáo viên được tạo phòng.");
                 if (!currentRoomId(s).isBlank()) throw new ApiException(409, "ALREADY_IN_ROOM", "Bạn đang ở trong một phòng.");
-                command = "/create";
+                String roomCode=RoomCode.normalize(text(body,"roomCode",""));
+                ClientHandler client=core.clients.get(s.coreSessionId);
+                if(client==null)throw new ApiException(401,"SESSION_CLOSED","Phiên đăng nhập đã đóng.");
+                Room created=client.createAndJoinRoom(roomCode);
+                json(ex,200,map("ok",true,"roomId",created.getRoomId(),"roomCode",created.getRoomCode()));return;
+            }
+            case "DELETE_ROOM" -> {
+                String id=text(body,"roomId","");
+                List<String> members=core.deleteRoom(s.identity,id);
+                for(WebSession member:sessions.values())if(members.contains(member.coreSessionId)) {
+                    calls.leave(member.peerId);
+                    endScreenShare(id,member.peerId,"Chủ phòng đã xóa phòng.");
+                }
+                json(ex,200,map("ok",true,"deletedRoomId",id));return;
             }
             case "JOIN_ROOM" -> {
                 if (!currentRoomId(s).isBlank()) throw new ApiException(409, "ALREADY_IN_ROOM", "Hãy rời phòng hiện tại trước khi tham gia phòng khác.");
-                String roomId = text(body, "roomId", "").trim();
-                if (roomId.isBlank() || roomId.length() > 80 || roomId.contains(" ")) throw new ApiException(400, "INVALID_ROOM", "Mã phòng không hợp lệ.");
+                String roomId = RoomCode.normalize(text(body, "roomId", ""));
                 command = "/join " + roomId;
             }
             case "LEAVE_ROOM" -> {
                 calls.leave(s.peerId);
                 String activeRoom = currentRoomId(s);
                 if (!activeRoom.isBlank()) endScreenShare(activeRoom, s.peerId, "Người chia sẻ đã rời phòng.");
-                command = "/leave";
+                ClientHandler client=core.clients.get(s.coreSessionId);
+                if(client==null)throw new ApiException(401,"SESSION_CLOSED","Phiên đăng nhập đã đóng.");
+                client.leaveCurrentRoom();
+                json(ex,200,map("ok",true,"leftRoomId",activeRoom));return;
             }
             case "CHAT" -> {
                 String message = text(body, "text", "").trim();
@@ -386,13 +419,13 @@ public final class WebGatewayServer implements AutoCloseable {
     }
 
     private void assignmentRequest(HttpExchange ex, WebSession s) throws IOException {
-        Room room = requireCurrentRoom(s);
         Map<String,Object> body = readBody(ex);
         String type = text(body, "type", "").toUpperCase(Locale.ROOT);
         if (!ASSIGNMENT_TYPES.contains(type)) throw new ApiException(400, "UNKNOWN_ASSIGNMENT_ACTION", "Nghiệp vụ bài tập không hợp lệ.");
+        Room room=type.startsWith("PRACTICE_")?null:requireCurrentRoom(s);
         Map<String,Object> request = new LinkedHashMap<>(body);
         request.keySet().removeAll(Set.of("sessionId", "roomId", "requestId"));
-        request.put("type", type); request.put("sessionId", s.coreSessionId); request.put("roomId", room.getRoomId());
+        request.put("type", type); request.put("sessionId", s.coreSessionId); request.put("roomId", room==null?"":room.getRoomId());
         request.put("requestId", UUID.randomUUID().toString());
         Map<String,Object> response = assignments.handleWebRequest(request);
         int status = "OK".equalsIgnoreCase(text(response, "status", "")) ? 200 : 400;
@@ -590,6 +623,18 @@ public final class WebGatewayServer implements AutoCloseable {
         catch (RuntimeException e) { throw new ApiException(400, "INVALID_JSON", "JSON yêu cầu không hợp lệ."); }
     }
 
+    private static String roomSearchKey(String value) {
+        return java.text.Normalizer.normalize(value,java.text.Normalizer.Form.NFD)
+                .toLowerCase(Locale.ROOT).replaceAll("\\p{M}+","").replace('đ','d');
+    }
+    private static String queryText(URI uri,String key) {
+        String query=uri.getRawQuery();if(query==null)return "";
+        for(String pair:query.split("&")) {
+            String[] bits=pair.split("=",2);
+            if(bits.length==2&&bits[0].equals(key))return URLDecoder.decode(bits[1],StandardCharsets.UTF_8);
+        }
+        return "";
+    }
     private static long queryLong(URI uri, String key, long fallback) {
         String query = uri.getRawQuery(); if (query == null) return fallback;
         for (String pair : query.split("&")) { String[] bits = pair.split("=", 2); if (bits.length == 2 && bits[0].equals(key)) try { return Long.parseLong(bits[1]); } catch (NumberFormatException ignored) { } }
@@ -655,10 +700,12 @@ public final class WebGatewayServer implements AutoCloseable {
         final String token=UUID.randomUUID().toString(); final String peerId=UUID.randomUUID().toString();
         final String coreSessionId; final Identity identity; final Socket socket;
         final DataInputStream in; final DataOutputStream out;
-        final AtomicLong eventSequence=new AtomicLong(), screenSequence=new AtomicLong();
+        final AtomicLong eventSequence=new AtomicLong(), screenSequence=new AtomicLong(),departureGeneration=new AtomicLong();
         final Deque<Event> events=new ArrayDeque<>(); final Deque<ScreenSignal> screenSignals=new ArrayDeque<>();
         volatile long lastSeen=System.currentTimeMillis(); volatile boolean closed;
         volatile ScheduledFuture<?> heartbeat;
+        volatile ScheduledFuture<?> departure;
+        void touch(){lastSeen=System.currentTimeMillis();departureGeneration.incrementAndGet();ScheduledFuture<?> pending=departure;if(pending!=null)pending.cancel(false);}
         private WebSession(Socket socket, DataInputStream in, DataOutputStream out, String coreSessionId, Identity identity) {
             this.socket=socket; this.in=in; this.out=out; this.coreSessionId=coreSessionId; this.identity=identity;
         }
@@ -690,7 +737,7 @@ public final class WebGatewayServer implements AutoCloseable {
         synchronized void addScreenSignal(String roomId,String kind,String fromPeerId,String payload) { screenSignals.addLast(new ScreenSignal(screenSequence.incrementAndGet(),roomId,kind,fromPeerId,payload,System.currentTimeMillis()));while(screenSignals.size()>200)screenSignals.removeFirst(); }
         synchronized List<Map<String,Object>> screenSignalsAfter(long after,String roomId) { List<Map<String,Object>> result=new ArrayList<>();for(ScreenSignal s:screenSignals)if(s.id()>after&&Objects.equals(s.roomId(),roomId))result.add(s.asMap());return result; }
         synchronized boolean markClosed(){if(closed && socket.isClosed())return false;closed=true;return true;}
-        void close(){closed=true;if(heartbeat!=null)heartbeat.cancel(false);try{if(socket.isConnected()&&!socket.isClosed())Protocol.send(out,"/quit");}catch(IOException ignored){}try{socket.close();}catch(IOException ignored){}}
+        void close(){closed=true;if(departure!=null)departure.cancel(false);if(heartbeat!=null)heartbeat.cancel(false);try{if(socket.isConnected()&&!socket.isClosed())Protocol.send(out,"/quit");}catch(IOException ignored){}try{socket.close();}catch(IOException ignored){}}
     }
     private static final class ApiException extends RuntimeException {
         final int status; final String code;

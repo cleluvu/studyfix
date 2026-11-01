@@ -1,10 +1,11 @@
 // Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
 
-import { state } from "../../core/state.js";
+import { state, rememberView } from "../../core/state.js";
 import { api, assignment, command } from "../../core/api.js";
-import { loadCurrentRoom, loadPageData } from "../../core/polling.js";
+import { loadCurrentRoom, loadPageData, loadRooms, navigate, invalidateRoomRequests } from "../../core/polling.js";
 import { refreshMe } from "../auth/auth.js";
-import { renderScreenWorkspace } from "../screen-share/screen-share.js";
+import { renderScreenWorkspace, stopScreenShare } from "../screen-share/screen-share.js";
+import { leaveCall } from "../classroom/call.js";
 import { cryptoRandomId, sha256 } from "../../shared/crypto.js";
 import { esc, dateTime, timeOnly, initial, roleName, modeLabel, humanVerdict, statusClass } from "../../shared/format.js";
 import { btn, pill } from "../../ui/components.js";
@@ -14,9 +15,36 @@ import { toast, fail } from "../../ui/toast.js";
 import { renderClassroom } from "../classroom/classroom.js";
 
 export function renderRoom() {
-  if (!state.room)
-    return `${pageHeader("▣", "Phòng học", "Tạo phòng hoặc nhập mã phòng để bắt đầu cộng tác.", "")}<div class="room-empty"><div class="card"><div class="card-body" style="padding:28px"><div style="font-size:30px;color:#1677f9">⌘</div><h2 style="margin:10px 0 5px;font-size:20px">Không gian phòng học</h2><p style="font-size:12px;line-height:1.7;color:var(--muted);margin:0">Code cộng tác, chat, thành viên, lịch sử phiên bản và chia sẻ màn hình cùng nằm trong workspace này.</p><div class="room-join-grid">${state.identity.role === "TEACHER" ? `<div class="card join-card"><h3>＋ Tạo phòng mới</h3><p>Tạo phòng và tự động tham gia bằng tài khoản giáo viên của bạn.</p><button class="btn btn-primary wide" data-action="create-room">Tạo phòng học</button></div>` : ""}<div class="card join-card"><h3>↗ Tham gia phòng</h3><p>Nhập mã phòng được cung cấp bởi giáo viên.</p><form id="join-room-form"><div class="form-row"><label>Mã phòng</label><input name="roomId" class="field" placeholder="Ví dụ: LTM-01" required /></div><button class="btn btn-primary wide" type="submit">Tham gia phòng</button></form></div></div></div></div></div>`;
+  if (!state.room) return "";
   return renderClassroom(renderChat(), renderMembers());
+}
+
+export async function leaveMeeting() {
+  state.meetingClosed=true;state.page="overview";rememberView();
+  await leaveCall();
+  await stopScreenShare(true);
+  state.meetingPanel="";
+  await navigate("overview");
+}
+
+export async function leaveRoomMembership(roomId) {
+  if(state.roomLeaving||!state.room||String(state.room.roomId)!==String(roomId))return;
+  state.roomLeaving=true;
+  state.meetingClosed=true;
+  invalidateRoomRequests();
+  try {
+    await leaveCall();
+    await stopScreenShare(true);
+    await command("LEAVE_ROOM");
+    state.room=null;state.roomId="";state.classroom=null;
+    state.assignments=[];state.students=[];state.progress=[];state.contests=[];
+    state.meetingPanel="";state.page="overview";
+    rememberView();
+    await refreshMe();
+    await loadRooms();
+    render();
+    toast("Đã rời phòng. Bạn có thể tham gia phòng khác.","success");
+  } finally {state.roomLeaving=false;}
 }
 
 export function renderCollabWorkspace(isOwner, isEditor, queue) {
@@ -155,16 +183,20 @@ export async function runSharedCheck(assignmentId) {
   toast("Đã gửi snapshot code chung để chấm.", "success");
 }
 
-export async function commandCreateRoom() {
-  await command("CREATE_ROOM");
-  await new Promise((r) => setTimeout(r, 300));
+export async function commandCreateRoom(value) {
+  const code=String(value||"").normalize("NFC").trim();
+  if(!code||Array.from(code).length>80||/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(code))throw new Error("Nhập mã phòng từ 1 đến 80 ký tự, không xuống dòng.");
+  if(!state.customRoomCodes)throw new Error("Hãy khởi động lại Server Manager để bật tạo phòng bằng mã tự chọn.");
+  await command("CREATE_ROOM",{roomCode:code});
   await refreshMe();
   await loadCurrentRoom(false);
   state.page = "room";
+  state.meetingClosed=false;
   state.roomTab = "code";
+  state.newRoomCode="";
   await loadPageData();
   render();
-  toast("Đã gửi lệnh tạo phòng.", "success");
+  toast(`Đã tạo phòng ${code}.`, "success");
 }
 
 export async function joinRoom(roomId) {
@@ -175,10 +207,12 @@ export async function joinRoom(roomId) {
   await refreshMe();
   const room = await loadCurrentRoom(false);
   if (room) {
+    state.joinRoomCode="";
     state.page = "room";
+    state.meetingClosed=false;
     await loadPageData();
     render();
-    toast(`Đã vào phòng ${room.roomId}.`, "success");
+    toast(`Đã vào phòng ${room.roomCode||room.roomId}.`, "success");
   } else {
     const last =
       state.roomEvents[0]?.text || "Không vào được phòng. Kiểm tra mã phòng.";

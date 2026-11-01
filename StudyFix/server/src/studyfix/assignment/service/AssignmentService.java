@@ -9,6 +9,7 @@ import studyfix.assignment.integration.GatewaySharedRoomCodeProvider;
 import studyfix.assignment.integration.SharedRoomCodeProvider;
 import studyfix.assignment.model.*;
 import studyfix.assignment.persistence.AssignmentRepository;
+import studyfix.assignment.persistence.PracticeRepository;
 import studyfix.assignment.protocol.AssignmentJson;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -21,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /** Business rules and access control for module 3. Core Server/Store remain untouched. */
 public final class AssignmentService implements AutoCloseable {
+ private final PracticeRepository practice;
  private final StudyFixGateway gateway; private final AssignmentRepository repo; private final BlockingQueue<GradingTask> queue; private final GradingSandbox sandbox; private final Thread[] workers; private final AtomicBoolean closed=new AtomicBoolean(); private final SharedRoomCodeProvider sharedCodeProvider; private final AtomicInteger activeTasks=new AtomicInteger(); private final int queueCapacity; private final String dockerImage;
  public AssignmentService(StudyFixGateway gateway,Path database,int queueSize,int workerCount,String dockerImage)throws Exception{
   this.gateway=Objects.requireNonNull(gateway);sharedCodeProvider=new GatewaySharedRoomCodeProvider(gateway);repo=new AssignmentRepository(database);repo.seed(SeedExerciseCatalog.all());this.queueCapacity=Math.max(1,queueSize);this.dockerImage=Objects.requireNonNull(dockerImage);queue=new ArrayBlockingQueue<>(this.queueCapacity);sandbox=new DockerJavaSandbox(dockerImage,2,45);
@@ -28,11 +30,14 @@ public final class AssignmentService implements AutoCloseable {
   for(String pending:repo.recoverQueuedSharedChecks()){if(!queue.offer(new GradingTask(pending,TaskKind.SHARED)))repo.saveSharedCheckResult(pending,"INTERNAL_ERROR","INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi kiểm tra code chung đầy khi server khởi động.",0);}
   for(String pending:repo.recoverQueuedContestSubmissions()){if(!queue.offer(new GradingTask(pending,TaskKind.CONTEST)))repo.saveContestSubmissionResult(pending,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi bài thi đầy khi server khởi động.",0,List.of()));}
   for(String pending:repo.recoverQueuedTeacherTrials()){if(!queue.offer(new GradingTask(pending,TaskKind.TRIAL)))repo.saveTeacherTrialResult(pending,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi lượt thử của giáo viên đầy khi server khởi động.",0,List.of()));}
+  practice=new PracticeRepository(database);
+  for(String pending:practice.recover())if(!queue.offer(new GradingTask(pending,TaskKind.PRACTICE)))practice.finish(pending,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Hàng đợi đầy khi khôi phục lượt luyện tập.",0,List.of()));
   workers=new Thread[Math.max(1,workerCount)];for(int i=0;i<workers.length;i++){workers[i]=new Thread(this::workLoop,"studyfix-grader-"+(i+1));workers[i].setDaemon(true);workers[i].start();}
  }
  public Map<String,Object> handle(Map<String,Object> req){String requestId=AssignmentJson.text(req,"requestId",UUID.randomUUID().toString());try{
   String type=AssignmentJson.text(req,"type","");String sessionId=AssignmentJson.text(req,"sessionId","");String roomId=AssignmentJson.text(req,"roomId","");if(sessionId.isBlank())throw new AccessFailure("UNAUTHENTICATED","Thiếu session đăng nhập.");Identity who;try{who=gateway.identity(sessionId);}catch(SecurityException e){throw new AccessFailure("UNAUTHENTICATED","Phiên StudyFix đã hết hạn hoặc chưa đăng nhập.");}
   if(type.equals("PING"))return ok(requestId,AssignmentJson.mapOf("serverTime",System.currentTimeMillis(),"username",who.username()));
+  if(type.startsWith("PRACTICE_"))return handlePractice(requestId,type,req,who);
   if(roomId.isBlank()||!gateway.isMember(sessionId,roomId))throw new AccessFailure("NOT_MEMBER","Bạn chưa ở trong phòng này.");
   boolean teacherOwner=false;try{teacherOwner=gateway.isTeacher(sessionId,roomId);}catch(SecurityException ignored){}
   switch(type){
@@ -131,6 +136,61 @@ public final class AssignmentService implements AutoCloseable {
    default -> throw new AccessFailure("INVALID_REQUEST","Loại yêu cầu không được hỗ trợ: "+type);
   }
  }catch(AccessFailure e){return error(requestId,e.code,e.getMessage());}catch(IllegalArgumentException e){return error(requestId,"INVALID_REQUEST",e.getMessage());}catch(SQLException e){return error(requestId,"STORAGE_ERROR","Lỗi lưu trữ bài tập: "+safe(e.getMessage()));}catch(Exception e){return error(requestId,"INTERNAL_ERROR","Yêu cầu chưa xử lý được: "+safe(e.getMessage()));}}
+ private Map<String,Object> handlePractice(String requestId,String type,Map<String,Object> req,Identity who)throws Exception {
+  if(type.equals("PRACTICE_RESULT")) {
+   Map<String,Object> row=practice.get(AssignmentJson.text(req,"submissionId",""));
+   if(row==null||!who.userId().equals(row.get("userId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy bài nộp của bạn.");
+   return ok(requestId,AssignmentJson.mapOf("submission",practiceView(row,true)));
+  }
+  if(type.equals("PRACTICE_LIST")) {
+   List<Map<String,Object>> all=repo.listExercises("","","");Map<String,Map<String,Object>> progress=practice.progress(who.userId());
+   List<Map<String,Object>> filtered=new ArrayList<>();Set<String> topics=new TreeSet<>();int ac=0,failed=0,fresh=0;
+   String query=AssignmentJson.text(req,"query","").strip();if(query.length()>160)throw new AccessFailure("INVALID_REQUEST","Từ khóa tối đa 160 ký tự.");
+   String needle=practiceSearch(query);
+   for(Map<String,Object> item:all) {
+    Map<String,Object> row=new LinkedHashMap<>(item);row.putAll(progress.getOrDefault(String.valueOf(item.get("id")),AssignmentJson.mapOf("practiceStatus","NEW","acceptedByMe",false,"attempts",0)));
+    String state=String.valueOf(row.get("practiceStatus"));if(state.equals("AC"))ac++;if(state.equals("FAILED"))failed++;if(state.equals("NEW"))fresh++;
+    topics.add(String.valueOf(item.get("topic")));
+    if(!practiceSearch(item.get("id")+" "+item.get("title")).contains(needle))continue;
+    boolean matches=true;for(String key:List.of("topic","difficulty","mode")){String value=AssignmentJson.text(req,key,"");if(!value.isBlank()&&!value.equals(row.get(key)))matches=false;}
+    String status=AssignmentJson.text(req,"filterStatus","");if(!status.isBlank()&&!status.equals(state))matches=false;
+    if(matches)filtered.add(row);
+   }
+   int total=filtered.size(),pages=Math.max(1,(total+9)/10),page=Math.max(1,Math.min(pages,AssignmentJson.integer(req,"page",1)));
+   return ok(requestId,AssignmentJson.mapOf("exercises",filtered.subList((page-1)*10,Math.min(total,page*10)),"total",total,"page",page,"totalPages",pages,"topics",new ArrayList<>(topics),"stats",AssignmentJson.mapOf("total",all.size(),"accepted",ac,"failed",failed,"fresh",fresh)));
+  }
+  String id=AssignmentJson.text(req,"exerciseId","");Exercise exercise=repo.getExercise(id);
+  if(exercise==null)throw new AccessFailure("NOT_FOUND","Bài trong ngân hàng không tồn tại.");
+  switch(type) {
+   case "PRACTICE_GET" -> {
+    Map<String,Object> detail=new LinkedHashMap<>(exercise.publicView());List<Map<String,Object>> tests=new ArrayList<>();
+    for(Exercise.TestCase test:exercise.tests())if(!test.hidden())tests.add(AssignmentJson.mapOf("input",test.input(),"expectedOutput",test.expected()));
+    detail.put("publicTests",tests);detail.putAll(practice.progress(who.userId()).getOrDefault(id,AssignmentJson.mapOf("practiceStatus","NEW","acceptedByMe",false)));
+    return ok(requestId,AssignmentJson.mapOf("exercise",detail));
+   }
+   case "PRACTICE_SUBMISSIONS" -> {return ok(requestId,practice.history(who.userId(),id,AssignmentJson.integer(req,"page",1)));}
+   case "PRACTICE_SUBMIT","PRACTICE_RUN" -> {return createPractice(requestId,req,who,exercise,type.equals("PRACTICE_RUN"));}
+   default -> throw new AccessFailure("INVALID_REQUEST","Thao tác luyện tập không hợp lệ.");
+  }
+ }
+ private static String practiceSearch(String value){return java.text.Normalizer.normalize(value,java.text.Normalizer.Form.NFD).toLowerCase(Locale.ROOT).replaceAll("\\p{M}+","").replace('đ','d');}
+ private static Map<String,Object> practiceView(Map<String,Object> row,boolean source){Map<String,Object> out=new LinkedHashMap<>(row);out.remove("userId");if(!source)out.remove("sourceCode");return out;}
+ private synchronized Map<String,Object> createPractice(String requestId,Map<String,Object> req,Identity who,Exercise exercise,boolean run)throws Exception {
+  String key=AssignmentJson.text(req,"idempotencyKey","");if(key.isBlank()||key.length()>128)throw new AccessFailure("INVALID_REQUEST","Thiếu hoặc sai mã yêu cầu nộp.");
+  String source=AssignmentJson.text(req,"sourceCode","");if(source.isBlank()||source.getBytes(StandardCharsets.UTF_8).length>32000||source.contains("\u0000"))throw new AccessFailure("INVALID_REQUEST","Code phải có nội dung, tối đa 32.000 byte.");
+  Map<String,Object> previous=practice.byKey(who.userId(),key);
+  if(previous!=null) {
+   if(!exercise.id().equals(previous.get("exerciseId"))||run!=Boolean.TRUE.equals(previous.get("isRun"))||!source.equals(previous.get("sourceCode")))throw new AccessFailure("DUPLICATE_REQUEST","Mã yêu cầu đã dùng cho code/bài khác.");
+   return ok(requestId,AssignmentJson.mapOf("submission",practiceView(previous,false)));
+  }
+  int count=(int)exercise.tests().stream().filter(t->!run||!t.hidden()).count();
+  if(count==0)throw new AccessFailure("INVALID_REQUEST","Bài chưa có test phù hợp để chạy.");
+  if(queue.remainingCapacity()==0)throw new AccessFailure("QUEUE_FULL","Hàng đợi chấm đang đầy. Hãy thử lại sau.");
+  Map<String,Object> row=practice.create(who,exercise.id(),source,run,key,count);
+  String id=String.valueOf(row.get("id"));
+  if(!queue.offer(new GradingTask(id,TaskKind.PRACTICE)))practice.finish(id,new GradingResult("INTERNAL_ERROR",0,100,0,count,"Hàng đợi không nhận được lượt chấm.",0,List.of()));
+  return ok(requestId,AssignmentJson.mapOf("submission",practiceView(practice.get(id),false)));
+ }
  private synchronized Map<String,Object> createTeacherTrial(String requestId,Map<String,Object> req,String roomId,Identity who,boolean teacherOwner)throws Exception {
   requireOwner(teacherOwner);
   if(who.role()!=Identity.Role.TEACHER)throw new AccessFailure("FORBIDDEN","Chỉ giáo viên chủ phòng được thử bài trong ngân hàng.");
@@ -273,7 +333,14 @@ public final class AssignmentService implements AutoCloseable {
    try{
     task=queue.take();
     activeTasks.incrementAndGet();
-    if(task.kind()==TaskKind.SHARED){
+    if(task.kind()==TaskKind.PRACTICE){
+     try {
+      practice.running(task.id());Map<String,Object> row=practice.get(task.id());if(row==null)continue;
+      Exercise exercise=repo.getExercise(String.valueOf(row.get("exerciseId")));if(exercise==null)throw new IllegalStateException("Bài không tồn tại.");
+      boolean run=Boolean.TRUE.equals(row.get("isRun"));List<Exercise.TestCase> tests=exercise.tests().stream().filter(t->!run||!t.hidden()).toList();
+      practice.finish(task.id(),sandbox.grade("practice-"+task.id(),String.valueOf(row.get("sourceCode")),tests,100));
+     }catch(Exception ex){try{practice.finish(task.id(),new GradingResult("INTERNAL_ERROR",0,100,0,0,"Dịch vụ chấm chưa sẵn sàng. Hãy kiểm tra Docker/sandbox rồi thử lại.",0,List.of()));}catch(Exception ignored){}}
+    }else if(task.kind()==TaskKind.SHARED){
      try{
       repo.markSharedCheckRunning(task.id());
       SharedCheckRun run=repo.getSharedCheck(task.id());
@@ -353,7 +420,7 @@ public final class AssignmentService implements AutoCloseable {
  @Override public void close(){if(!closed.compareAndSet(false,true))return;for(Thread t:workers)t.interrupt();}
  /** Internal classroom integration; this is never exposed directly as a browser endpoint. */
  public Exercise classroomExercise(String id) throws SQLException { return repo.getExercise(id); }
- private enum TaskKind { PERSONAL, SHARED, CONTEST, TRIAL }
+ private enum TaskKind { PERSONAL, SHARED, CONTEST, TRIAL, PRACTICE }
  private record GradingTask(String id,TaskKind kind){}
  private static final class AccessFailure extends RuntimeException{final String code;AccessFailure(String code,String message){super(message);this.code=code;}}
 }

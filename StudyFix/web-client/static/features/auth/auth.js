@@ -7,6 +7,7 @@ import { render } from "../../ui/render.js";
 import { toast } from "../../ui/toast.js";
 import { stopScreenShare } from "../screen-share/screen-share.js";
 import { leaveCall } from "../classroom/call.js";
+import { resetChatNotifications } from "../classroom/chat-notifications.js";
 
 // Wiring for core/api.js (401 -> logout) and core/polling.js (post-join
 // refresh) — see the comments in those files for why this is a registered
@@ -29,6 +30,8 @@ export async function login(username, password) {
   state.token = res.token;
   state.peerId = res.peerId;
   state.identity = res.identity;
+  state.exerciseMode="practice";
+  state.meetingClosed=true;
   state.roomId = res.roomId || "";
   sessionStorage.setItem("studyfix.web.token", state.token);
   await refreshMe();
@@ -49,6 +52,7 @@ export async function logout(showToast = true) {
   state.identity = null;
   state.peerId = "";
   state.room = null;
+  state.meetingClosed=true;
   state.classroom = null;
   state.classroomDrafts = {};
   state.meetingView = "";state.meetingPanel="";state.callRoster=[];
@@ -56,10 +60,12 @@ export async function logout(showToast = true) {
   state.assignments = [];
   state.catalog = [];
   state.chatItems = [];
+  resetChatNotifications();
   state.page = "overview";
   state.eventCursor = 0;
   state.screenCursor = 0;
   sessionStorage.removeItem("studyfix.web.token");
+  sessionStorage.removeItem("studyfix.web.view");
   stopPolling();
   if (token)
     fetch("/api/auth/logout", {

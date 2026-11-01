@@ -6,6 +6,7 @@ let epoch = 0;
 let busy = false;
 let joinedRoom = "";
 let cursor = 0;
+let pollChain = Promise.resolve();
 const connections = new Map();
 const ice = new Map();
 state.callRoster ||= [];
@@ -53,12 +54,6 @@ async function makePeer(peerId) {
   const pc = new RTCPeerConnection({iceServers:[]}); // LAN peers; no third-party signaling or media service.
   const entry = {pc, stream:new MediaStream(), senders:{}, offered:false};
   connections.set(peerId, entry);
-  for (const kind of ["audio","video"]) {
-    const transceiver = pc.addTransceiver(kind, {direction:"sendrecv",streams:[state.callLocal]});
-    entry.senders[kind] = transceiver.sender;
-    const track = state.callLocal?.getTracks().find(t => t.kind === kind && t.readyState === "live");
-    if (track) await transceiver.sender.replaceTrack(track);
-  }
   pc.onicecandidate = e => {if(e.candidate && state.callJoined) signal("ICE",{toPeerId:peerId,payload:JSON.stringify(e.candidate.toJSON())}).catch(err => {state.callError=err.message;});};
   pc.ontrack = e => {
     if (!state.callJoined) return;
@@ -69,6 +64,22 @@ async function makePeer(peerId) {
     if (pc.connectionState === "failed") { dropPeer(peerId);state.callError="Một kết nối media bị gián đoạn; đang kết nối lại.";refresh(); }
   };
   return entry;
+}
+async function bindSenders(entry, isOfferer) {
+  // Answerers must use the channels created by setRemoteDescription(offer).
+  // Pre-creating addTransceiver channels here leaves their senders unassociated
+  // with the offer's m-lines, so only the offerer's media is transmitted.
+  for (const kind of ["audio", "video"]) {
+    let channel = entry.pc.getTransceivers().find(t =>
+      !t.stopped && t.receiver.track.kind === kind && (isOfferer || t.mid !== null));
+    if (!channel && isOfferer) channel = entry.pc.addTransceiver(kind, {direction:"sendrecv", streams:[state.callLocal]});
+    if (!channel) continue;
+    channel.direction = "sendrecv";
+    entry.senders[kind] = channel.sender;
+    channel.sender.setStreams?.(state.callLocal);
+    const track = state.callLocal?.getTracks().find(t => t.kind === kind && t.readyState === "live") || null;
+    await channel.sender.replaceTrack(track);
+  }
 }
 function dropPeer(id) {
   const entry = connections.get(id);connections.delete(id);ice.delete(id);state.callStreams.delete(id);
@@ -93,19 +104,25 @@ export async function toggleDevice(kind) {
     if (current) {
       if (kind === "audio") current.enabled = !current.enabled;
       else {
-        for (const entry of connections.values()) await entry.senders.video.replaceTrack(null);
+        for (const entry of connections.values()) if(entry.senders.video) await entry.senders.video.replaceTrack(null);
         current.stop();state.callLocal.removeTrack(current);
       }
     } else {
       const captured = await capture(kind);
       if (version !== epoch || !state.callJoined) {captured.getTracks().forEach(t=>t.stop());return;}
       const track = captured.getTracks()[0];state.callLocal.addTrack(track);watchTracks(captured);
-      for (const entry of connections.values()) await entry.senders[kind].replaceTrack(track);
+      for (const entry of connections.values()) if(entry.senders[kind]) await entry.senders[kind].replaceTrack(track);
     }
     await signal("STATE",localFlags());await pollCall();refresh();
   } finally {busy = false;}
 }
-export async function pollCall() {
+export function pollCall() {
+  // Device toggles and the background poll may overlap; process each signal once.
+  const pending = pollChain.catch(() => {}).then(pollCallOnce);
+  pollChain = pending;
+  return pending;
+}
+async function pollCallOnce() {
   if (!state.room || !state.token) {if(state.callJoined) await leaveCall(false);return;}
   if (joinedRoom && joinedRoom !== state.room.roomId) await leaveCall(false);
   const room = state.room.roomId, version = epoch;
@@ -120,6 +137,7 @@ export async function pollCall() {
     const ids = new Set(state.callRoster.map(p=>p.peerId));
     for (const id of [...connections.keys()]) if(!ids.has(id))dropPeer(id);
     for (const msg of r.signals || []) {
+      if(version!==epoch || !state.callJoined)return;
       if (msg.id <= cursor) continue;
       if (!ids.has(msg.fromPeerId)) {cursor=Math.max(cursor,msg.id);continue;}
       try {
@@ -132,18 +150,20 @@ export async function pollCall() {
           const description=JSON.parse(msg.payload);
           if (msg.kind === "OFFER" && pc.signalingState !== "stable") throw new Error("Đang thương lượng lại cuộc gọi; vui lòng vào lại cuộc gọi nếu mất media.");
           await pc.setRemoteDescription(description);
+          if(msg.kind==="OFFER")await bindSenders(entry, false);
           for(const candidate of ice.get(msg.fromPeerId)||[])await pc.addIceCandidate(candidate);
           ice.delete(msg.fromPeerId);
-          if(msg.kind==="OFFER") {await pc.setLocalDescription(await pc.createAnswer());await signal("ANSWER",{toPeerId:msg.fromPeerId,payload:JSON.stringify(pc.localDescription)});}
+          if(msg.kind==="OFFER" && version===epoch && state.callJoined) {await pc.setLocalDescription(await pc.createAnswer());await signal("ANSWER",{toPeerId:msg.fromPeerId,payload:JSON.stringify(pc.localDescription)});}
         }
       } catch(e) {state.callError=e.message;dropPeer(msg.fromPeerId);}
       cursor=Math.max(cursor,msg.id);
     }
     for(const peer of state.callRoster) if(peer.peerId!==state.peerId && state.peerId < peer.peerId) {
+      if(version!==epoch || !state.callJoined)return;
       const entry=await makePeer(peer.peerId);
       if(!entry.offered && entry.pc.signalingState==="stable") {
         entry.offered=true;
-        try {await entry.pc.setLocalDescription(await entry.pc.createOffer());await signal("OFFER",{toPeerId:peer.peerId,payload:JSON.stringify(entry.pc.localDescription)});}
+        try {await bindSenders(entry, true);await entry.pc.setLocalDescription(await entry.pc.createOffer());await signal("OFFER",{toPeerId:peer.peerId,payload:JSON.stringify(entry.pc.localDescription)});}
         catch(e) {dropPeer(peer.peerId);state.callError=e.message;}
       }
     }

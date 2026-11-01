@@ -20,17 +20,28 @@ export async function startScreenShare() {
   state.screenLocalStarting = true;
   let stream = null;
   try {
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 15, displaySurface: "browser" },
+      audio: { suppressLocalAudioPlayback: false },
+      systemAudio: "include",
+      selfBrowserSurface: "exclude",
+    });
+    if(state.meetingClosed)throw new Error("Bạn đã rời cuộc họp.");
     state.localStream = stream;
     state.screenActive = true;
+    state.screenPlaybackBlocked = false;
     state.remoteStream = null;
     state.remoteScreenPresenter = "";
     state.remoteScreenPresenterName = "";
     state.screenPeers = new Map();
     state.screenPendingIce = new Map();
     await loadCurrentRoom(false);
-    if (!state.room) throw new Error("Bạn chưa ở trong phòng học.");
+    if (!state.room||state.meetingClosed) throw new Error("Bạn đã rời cuộc họp hoặc chưa ở trong phòng học.");
     const result = await sendSignal("", "START", state.identity.displayName || state.identity.username || "Thành viên");
+    if(state.meetingClosed) {
+      await sendSignal("","END","").catch(()=>{});
+      throw new Error("Bạn đã rời cuộc họp.");
+    }
     state.activeScreenPresenterId = result.activePresenterPeerId || state.peerId;
     state.screenRequestedPresenterPeerId = "";
     stream.getVideoTracks()[0]?.addEventListener("ended", () => {
@@ -40,7 +51,9 @@ export async function startScreenShare() {
     state.roomTab = "screen";
     render();
     bindVideoElements();
-    toast("Đã bắt đầu chia sẻ. Thành viên trong phòng có thể yêu cầu nhận luồng.", "success");
+    toast(stream.getAudioTracks().length
+      ? "Đang chia sẻ hình ảnh và âm thanh."
+      : "Đang chia sẻ hình ảnh, chưa có âm thanh. Muốn phát YouTube cho lớp: chia sẻ lại, chọn tab YouTube và bật Chia sẻ âm thanh tab.", stream.getAudioTracks().length ? "success" : "info");
   } catch (e) {
     // If the server rejects a second publisher or startup fails, do not leave the capture running.
     state.screenActive = false;
@@ -104,12 +117,25 @@ function showRemoteStream(peerId, stream) {
   render();
   bindVideoElements();
 }
+export async function playScreenAudio() {
+  const video = document.getElementById("remote-screen-video");
+  if (!video || !state.remoteStream) throw new Error("Chưa nhận được luồng màn hình.");
+  video.muted = false;
+  await video.play();
+  state.screenPlaybackBlocked = false;
+  render();
+}
 
 export async function receiveScreenSignal(signal) {
   if (!signal || !signal.kind) return;
   if (signal.roomId && state.room?.roomId && signal.roomId !== state.room.roomId) return;
   const peerId = String(signal.fromPeerId || "");
   const kind = String(signal.kind).toUpperCase();
+  if (kind === "ROOM_CLOSED") {
+    await stopScreenShare(false);
+    return;
+  }
+  if(state.meetingClosed)return;
   if (kind === "START" || kind === "ACTIVE") {
     if (!peerId || peerId === state.peerId) {
       if (peerId === state.peerId) state.activeScreenPresenterId = peerId;
@@ -145,9 +171,12 @@ export async function receiveScreenSignal(signal) {
       if (previous) { try { previous.close(); } catch (_) {} }
       const pc = new RTCPeerConnection(rtcConfig);
       state.screenPeers.set(peerId, pc);
+      const received = new MediaStream();
       pc.ontrack = (event) => {
-        const stream = event.streams?.[0];
-        if (stream) showRemoteStream(peerId, stream);
+        if (state.screenPeers.get(peerId) !== pc) return;
+        const stream = event.streams?.[0] || received;
+        if (!event.streams?.[0] && event.track && !received.getTracks().some(t => t.id === event.track.id)) received.addTrack(event.track);
+        showRemoteStream(peerId, stream);
       };
       pc.onicecandidate = (event) => {
         if (event.candidate) sendSignal(peerId, "ICE", JSON.stringify(event.candidate)).catch(() => {});
@@ -202,6 +231,7 @@ async function clearRemotePresenter(peerId) {
   }
   if (!peerId || state.remoteScreenPresenter === peerId || state.remoteScreenPresenter === state.activeScreenPresenterId) {
     state.remoteStream = null;
+    state.screenPlaybackBlocked = false;
     state.remoteScreenPresenter = "";
     state.remoteScreenPresenterName = "";
   }
@@ -220,6 +250,7 @@ export async function stopScreenShare(notify = true) {
   if (state.localStream) state.localStream.getTracks().forEach((track) => { try { track.stop(); } catch (_) {} });
   state.localStream = null;
   state.remoteStream = null;
+  state.screenPlaybackBlocked = false;
   state.remoteScreenPresenter = "";
   state.remoteScreenPresenterName = "";
   state.activeScreenPresenterId = "";

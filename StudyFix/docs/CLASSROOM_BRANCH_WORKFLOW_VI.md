@@ -1,5 +1,7 @@
 # Phòng học sửa lỗi với Master và nhánh cá nhân
 
+**Vòng đời phòng ngày 30/10/2026:** mã do giảng viên nhập, danh sách 5 phòng/trang gồm cả phòng trống. Rời hết người không xóa phòng; phòng được giữ qua restart. Chủ phòng chủ động bấm Xóa cạnh Vào/Mở. [Hướng dẫn hiện hành](ROOM_CODES_AND_LIFECYCLE_VI.md).
+
 **Giao diện hiện hành:** Phòng học đã có bố cục tối kiểu cuộc họp và mic/camera WebRTC theo yêu cầu mới. Xem [hướng dẫn giao diện giảng viên và sinh viên](MEETING_UI_VI.md) để biết nút điều khiển, phạm vi LAN, giới hạn media và phần chưa nghiệm thu. Các mô tả bố cục thẻ trước đây bên dưới được thay bằng workspace này; nghiệp vụ Master/nhánh vẫn giữ nguyên.
 
 Bản cập nhật ngày 29/10/2026 chuyển phòng học Web của StudyFix sang quy trình: giáo viên giảng trên Master, tách code thành nhánh riêng cho từng học sinh, theo dõi bài làm và chọn một nhánh để công bố thành Master mới. Java, TCP, SQLite, Web Gateway và giao diện JavaScript hiện có được giữ lại theo lựa chọn của người dùng.

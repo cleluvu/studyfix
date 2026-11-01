@@ -7,6 +7,9 @@ import { registerPage } from "./core/router.js";
 import { renderOverview } from "./ui/render.js";
 import { renderRoom } from "./features/room/room.js";
 import { renderExercises } from "./features/exercises/exercises.js";
+import { renderPractice } from "./features/exercises/practice.js";
+import { state } from "./core/state.js";
+import { btn } from "./ui/components.js";
 import { renderContests } from "./features/contests/contests.js";
 import { init } from "./core/lifecycle.js";
 
@@ -15,7 +18,7 @@ import "./core/events.js";
 
 registerPage("overview", renderOverview);
 registerPage("room", renderRoom);
-registerPage("exercises", renderExercises);
+registerPage("exercises", () => state.exerciseMode==="room"?`<div class="tool-row">${btn("← Về cuộc họp","navigate","btn-soft btn-sm",'data-page="room"')}${btn("Luyện code cá nhân","navigate","btn-soft btn-sm",'data-page="exercises"')}</div>${renderExercises()}`:renderPractice());
 registerPage("contests", renderContests);
 
 init();

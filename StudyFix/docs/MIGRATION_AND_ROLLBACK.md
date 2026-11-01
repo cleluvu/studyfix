@@ -2,6 +2,10 @@
 
 ## Phạm vi hiện tại
 
+Luyện code bổ sung `p3_practice_submissions` và index phiên bản/history trong learning database. Đây là schema cộng thêm, không sửa FK hay bản ghi assignment/contest cũ. Bản cũ bỏ qua bảng mới nếu rollback; không xóa bảng luyện tập để giữ lịch sử. [Chi tiết](CODE_PRACTICE_VI.md).
+
+Phòng tự chọn thêm cột `rooms.public_code`, `code_key`, `active` và index mã duy nhất khi active. Giữ nguyên khóa chính số, FK và dữ liệu chi tiết. Chỉ khi chủ phòng bấm Xóa mới đánh dấu inactive; phòng trống còn active được giữ qua restart. Không tự phục hồi bản ghi đã inactive ở phiên bản trước. [Chi tiết migration và vòng đời](ROOM_CODES_AND_LIFECYCLE_VI.md).
+
 Bản phòng học theo nhánh bổ sung schema riêng trong **core database**: `classroom_schema` có các mốc 1 (phiên, nhánh, chấm, sự kiện) và 2 (chat). Các bảng mới là `classroom_sessions`, `classroom_branches`, `classroom_checks`, `classroom_events`, `classroom_chat`. DDL và mốc migration được tạo trong transaction của `Store`; không đổi dữ liệu users/rooms/revisions cũ. Các lượt chấm QUEUED/RUNNING còn dở được đánh dấu JUDGE_ERROR khi mở lại database. Nhánh và snapshot của vòng cũ được giữ lại. Lịch sử chat trước bản này vốn chỉ ở RAM không thể backfill.
 
 Merge cập nhật Master/revision, phase và sự kiện trong **cùng transaction core database**. Learning database bên dưới không đổi schema do tính năng nhánh này. Xem [quy trình và kiểm thử](CLASSROOM_BRANCH_WORKFLOW_VI.md).

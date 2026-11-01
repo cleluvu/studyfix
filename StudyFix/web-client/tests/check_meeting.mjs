@@ -11,11 +11,19 @@ globalThis.MediaStream=Stream;
 Object.defineProperty(globalThis,"navigator",{configurable:true,value:{mediaDevices:{getUserMedia:async c=>{captures++;return new Stream([track(c.audio?"audio":"video")]);}}}});
 const pcs=[];
 class PC {
-  constructor(){this.signalingState="stable";this.connectionState="new";this.senders=[];this.candidates=[];pcs.push(this);}
-  addTransceiver(kind){const sender={kind,track:null,replaceTrack:async t=>{sender.track=t;}};this.senders.push(sender);return {sender};}
+  constructor(){this.signalingState="stable";this.connectionState="new";this.senders=[];this.transceivers=[];this.candidates=[];pcs.push(this);}
+  addTransceiver(kind,options={}){const sender={kind,track:null,streams:options.streams||[],replaceTrack:async t=>{sender.track=t;},setStreams(...streams){sender.streams=streams;}};this.senders.push(sender);const transceiver={sender,receiver:{track:{kind}},mid:null,direction:options.direction||"sendrecv"};this.transceivers.push(transceiver);return transceiver;}
+  getTransceivers(){return this.transceivers;}
   async createOffer(){return {type:"offer",sdp:"synthetic SDP"};}async createAnswer(){return {type:"answer",sdp:"synthetic SDP"};}
-  async setLocalDescription(d){this.localDescription=d;this.signalingState=d.type==="offer"?"have-local-offer":"stable";}
-  async setRemoteDescription(d){this.remoteDescription=d;this.signalingState=d.type==="offer"?"have-remote-offer":"stable";}
+  async setLocalDescription(d){if(d.type==="offer")this.transceivers.forEach((t,i)=>{t.mid=String(i);});this.localDescription=d;this.signalingState=d.type==="offer"?"have-local-offer":"stable";}
+  async setRemoteDescription(d){
+    // Match WebRTC association rules: addTransceiver-created local channels are NOT
+    // reused for an incoming offer. The browser creates separate negotiated channels.
+    if(d.type==="offer")for(const [i,kind] of ["audio","video"].entries()) {
+      if(!this.transceivers.some(t=>t.mid===String(i))){const t=this.addTransceiver(kind,{direction:"recvonly"});t.mid=String(i);}
+    }
+    this.remoteDescription=d;this.signalingState=d.type==="offer"?"have-remote-offer":"stable";
+  }
   async addIceCandidate(c){this.candidates.push(c);}close(){this.connectionState="closed";}
 }
 globalThis.RTCPeerConnection=PC;
@@ -74,7 +82,12 @@ packets=[{id:3,kind:"ICE",fromPeerId:"aaa",payload:JSON.stringify({candidate:"ca
 await pollCall();
 check(sent.at(-1).kind==="ANSWER"&&sent.at(-1).toPeerId==="aaa","responder answers incoming offer");
 check(pcs.at(-1).candidates.length===1,"responder flushes early ICE after remote offer");
+check(pcs.at(-1).getTransceivers().length===2,"answerer has exactly the offered audio/video channels, no unassociated duplicates");
 await toggleDevice("audio");const disconnectedMic=state.callLocal.getAudioTracks()[0];
+check(pcs.at(-1).getTransceivers().some(t=>t.mid!==null&&t.direction==="sendrecv"&&t.sender.track===disconnectedMic),"responder mic is attached to a negotiated sendrecv channel");
+await toggleDevice("video");const responderCamera=state.callLocal.getVideoTracks()[0];
+check(pcs.at(-1).getTransceivers().some(t=>t.mid!==null&&t.direction==="sendrecv"&&t.sender.track===responderCamera),"responder camera uses the negotiated channel when enabled after answering");
+check(pcs.at(-1).getTransceivers().every(t=>t.sender.streams.includes(state.callLocal)),"both negotiated senders use the local stream identity");
 roster=roster.filter(p=>p.peerId!==state.peerId);await pollCall();
 check(!state.callJoined&&disconnectedMic.readyState==="ended","server-side membership loss stops capture and peer connections");
 
@@ -89,4 +102,28 @@ const joining=joinCall("video");await Promise.resolve();await leaveCall(false);
 const cancelled=track("video");finishCapture(new Stream([cancelled]));
 await assert.rejects(joining,/rời phòng/);checks++;
 check(cancelled.readyState==="ended"&&!state.callJoined,"late capture after leaving is stopped immediately");
+
+// The server re-delivers a packet until its cursor is acknowledged. Concurrent
+// toggle/background polls must not both apply the same offer to one connection.
+let heldOffer=null,activePolls=0,maxPolls=0;
+roster=[{peerId:"aaa",displayName:"Teacher",audio:true,video:true}];
+globalThis.fetch=async (url,options={})=>{
+  if(options.method==="POST") {
+    const m=JSON.parse(options.body);sent.push(m);
+    if(m.kind==="JOIN")roster.push({peerId:state.peerId,displayName:"Student",audio:m.audio,video:m.video});
+    if(m.kind==="LEAVE")roster=roster.filter(p=>p.peerId!==state.peerId);
+    return {ok:true,status:200,json:async()=>({ok:true})};
+  }
+  activePolls++;maxPolls=Math.max(maxPolls,activePolls);
+  const after=Number(new URL(url,"http://test").searchParams.get("after"));
+  const signals=heldOffer&&after<heldOffer.id?[heldOffer]:[];
+  await new Promise(resolve=>setImmediate(resolve));activePolls--;
+  return {ok:true,status:200,json:async()=>({ok:true,peers:roster,signals})};
+};
+await joinCall();const beforeDuplicate=sent.filter(m=>m.kind==="ANSWER").length;
+heldOffer={id:5,kind:"OFFER",fromPeerId:"aaa",payload:JSON.stringify({type:"offer",sdp:"offer"})};
+await Promise.all([pollCall(),pollCall()]);
+check(maxPolls===1,"background and device polls cannot overlap");
+check(sent.filter(m=>m.kind==="ANSWER").length===beforeDuplicate+1,"re-delivered offer answered exactly once");
+await leaveCall();
 console.log(`Meeting media: ${checks} checks PASS (synthetic WebRTC/devices; real media E2E not claimed).`);

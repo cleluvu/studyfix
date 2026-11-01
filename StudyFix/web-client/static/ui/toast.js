@@ -11,6 +11,16 @@ export function toast(message, type = "info") {
   toastRegion.appendChild(node);
   setTimeout(() => node.remove(), 4600);
 }
+export function notifyChatMessage({name, text, count = 1, roomId}) {
+  const existing = Array.from(toastRegion.querySelectorAll?.(".chat-toast") || []);
+  while(existing.length >= 3) existing.shift().remove();
+  const node = document.createElement("div");
+  node.className = "toast chat-toast";
+  node.setAttribute("role", "status");
+  node.innerHTML = `<div class="chat-toast-icon" aria-hidden="true">✉</div><div class="chat-toast-body"><strong>Tin nhắn mới${count>1?` (${count})`:""} · Phòng ${esc(roomId)}</strong><div class="chat-toast-sender">${esc(name)}</div><p>${esc(text)}</p><button class="chat-toast-open" data-action="chat-open">Mở chat →</button></div><button class="chat-toast-close" data-action="chat-dismiss-toast" aria-label="Đóng thông báo">×</button>`;
+  toastRegion.appendChild(node);
+  setTimeout(() => node.remove(), 8000);
+}
 
 export function fail(error) {
   toast(error?.message || String(error), "error");

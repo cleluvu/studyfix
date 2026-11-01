@@ -132,8 +132,8 @@ public final class WebGatewayIntegrationTest {
             check(js.status==200 && js.raw.contains("core/events.js") && js.raw.contains("registerPage"),"refactored web app entry module is served");
 
             String teacher=login(client,base,"teacher","Teacher123!");
-            Response createRoom=request(client,base,"/api/rooms/current/command","POST",teacher,Map.of("action","CREATE_ROOM"));
-            check(createRoom.status==202,"teacher room-create command accepted");
+            Response createRoom=request(client,base,"/api/rooms/current/command","POST",teacher,Map.of("action","CREATE_ROOM","roomCode","Test "+UUID.randomUUID()));
+            check(createRoom.status==200,"teacher room-create command accepted");
             waitFor(()->request(client,base,"/api/me","GET",teacher,null).status==200
                     && !str(request(client,base,"/api/me","GET",teacher,null).body.get("roomId")).isBlank(),"teacher receives created room");
             Response teacherRoom=request(client,base,"/api/rooms/current","GET",teacher,null);
@@ -286,7 +286,7 @@ public final class WebGatewayIntegrationTest {
             Response hiddenReport=assign(client,base,student1,roomId,"CLASS_PROGRESS",Map.of());
             check(hiddenReport.status==400 && "FORBIDDEN".equals(hiddenReport.body.get("errorCode")),"student cannot read teacher class-progress reports");
             Response leave=request(client,base,"/api/rooms/current/command","POST",student1,Map.of("action","LEAVE_ROOM"));
-            check(leave.status==202,"student can leave room cleanly");
+            check(leave.status==200,"student can leave room synchronously");
 
             WebGatewayServer[] activeGateway={web};
             testHttpsGateway(trustAllHttpsClient(),"127.0.0.1",0,temp,core,assignments,activeGateway);

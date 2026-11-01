@@ -1,5 +1,9 @@
 # StudyFix — Web FE + Java Gateway
 
+**Luyện code:** giáo viên/sinh viên dùng cùng giao diện, chọn mọi bài hiện có trong catalog và nộp code không cần phòng hoặc giao bài. Có chạy ví dụ, màu AC/chưa đạt, nhập file và lịch sử từng phiên bản. [Hướng dẫn sử dụng](docs/CODE_PRACTICE_VI.md). Giao bài của lớp vẫn truy cập từ trong cuộc họp.
+
+**Phòng học hiện hành:** giảng viên nhập mã tự chọn, danh sách gồm cả phòng trống với 5 phòng/trang. Phòng được giữ qua restart; chỉ chủ phòng được bấm Xóa cạnh Vào/Mở. [Hướng dẫn mã phòng và vòng đời](docs/ROOM_CODES_AND_LIFECYCLE_VI.md). Khởi động lại Server Manager rồi Ctrl+Shift+R để nạp bản mới.
+
 **Giao diện cuộc họp:** Phòng học có giao diện tối cho giảng viên/sinh viên, lưới code, terminal và gọi mic/camera WebRTC trong LAN. Xem [hướng dẫn cuộc họp](docs/MEETING_UI_VI.md). Khởi động lại Server Manager để nạp backend mới, rồi tải lại trình duyệt.
 
 **Cập nhật 29/10/2026:** Phòng học web dùng **Master → nhánh riêng → theo dõi → Merge**, giữ Java/TCP/SQLite. Xem [hướng dẫn phòng học mới](docs/CLASSROOM_BRANCH_WORKFLOW_VI.md) để chạy và dùng. Đây là tài liệu hiện hành cho phòng học; các báo cáo bàn giao bên dưới mô tả những phiên bản trước.

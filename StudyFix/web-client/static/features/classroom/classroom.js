@@ -74,7 +74,6 @@ export async function loadClassroom() {
   const changed = JSON.stringify(state.classroom) !== JSON.stringify(response.classroom);
   if(state.classroomRoomId!==roomId) {state.meetingView="";state.meetingPanel="";state.meetingQuery="";state.meetingFilter="";state.meetingGridPage=0;state.callRoster=[];}
   state.classroom = response.classroom;
-  state.chatItems = response.classroom.chat || [];
   state.classroomRoomId = roomId;
   state.classroomError = "";
   scheduleAutoCheck();
@@ -122,7 +121,6 @@ async function sendAction(action, data = {}) {
     const response = await api("/api/classroom", { method: "POST", body: { action, expectedPhase: c.phase, round: c.round, expectedVersion: state.room.version, ...data } });
     if (state.token !== token || state.room?.roomId !== roomId) throw new Error("Bạn đã rời phiên làm việc này. Nháp được giữ trong trình duyệt.");
     state.classroom = response.classroom;
-    state.chatItems = response.classroom.chat || [];
     const r = await api("/api/rooms/current");
     if (state.token === token && state.room?.roomId === roomId) state.room = r.room;
     render();return response.classroom;

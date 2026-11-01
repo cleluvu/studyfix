@@ -19,10 +19,10 @@ public final class MeetingCallIntegrationTest {
             check(call(base,"/api/call/signals",null,null).status()==401,"call poll requires authentication");
             String t=login(base,"teacher","Teacher123!"),a=login(base,"student1","Student123!"),b=login(base,"student2","Student234!"),f=login(base,"teacher2","Teacher234!");
             check(send(base,a,"JOIN",Map.of()).status()==409,"call join requires current room");
-            call(base,"/api/rooms/current/command",t,mapOf("action","CREATE_ROOM"));
+            call(base,"/api/rooms/current/command",t,mapOf("action","CREATE_ROOM","roomCode","Test "+UUID.randomUUID()));
             waitFor(()->call(base,"/api/rooms/current",t,null).status()==200,"teacher room created");
             String room=room(base,t);join(base,a,room);join(base,b,room);
-            call(base,"/api/rooms/current/command",f,mapOf("action","CREATE_ROOM"));
+            call(base,"/api/rooms/current/command",f,mapOf("action","CREATE_ROOM","roomCode","Test "+UUID.randomUUID()));
             waitFor(()->call(base,"/api/rooms/current",f,null).status()==200,"foreign room created");
             String tp=text(call(base,"/api/me",t,null).body(),"peerId",""),ap=text(call(base,"/api/me",a,null).body(),"peerId",""),bp=text(call(base,"/api/me",b,null).body(),"peerId",""),fp=text(call(base,"/api/me",f,null).body(),"peerId","");
             check(send(base,t,"OFFER",mapOf("toPeerId",ap,"payload","{}" )).status()==403,"signaling rejected before explicit call join");
@@ -47,6 +47,7 @@ public final class MeetingCallIntegrationTest {
             check(send(base,a,"INVALID",Map.of()).status()==400,"unknown signal rejected");
             check(send(base,a,"ICE",mapOf("toPeerId",tp,"payload","x".repeat(96001))).status()==400,"payload bounded");
             check(send(base,a,"LEAVE",Map.of()).status()==200,"explicit leave succeeds");
+            check(call(base,"/api/rooms/current",a,null).status()==200,"leaving call preserves room membership");
             check(rows(call(base,"/api/call/signals",t,null).body().get("signals")).isEmpty(),"leaving clears pending signals from sender");
             check(rows(call(base,"/api/call/signals",t,null).body().get("peers")).size()==1,"leaving removes participant");
             check(send(base,a,"STATE",mapOf("audio",true)).status()==403,"left participant cannot update media");

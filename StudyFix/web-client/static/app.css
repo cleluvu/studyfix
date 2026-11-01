@@ -24,3 +24,9 @@
 .classroom-student small { color: var(--muted); }
 .classroom-session .tool-row { margin: 12px 0; }
 #classroom-master, #classroom-branch { min-height: 280px; tab-size: 4; }
+/* Personal practice shares the existing editor, input and verdict components. */
+.practice-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}
+.practice-filters{display:flex;flex-wrap:wrap;align-items:center}.practice-filters .field{flex:2 1 200px;min-width:0;width:auto}.practice-filters .select{flex:1 1 130px;min-width:0;width:auto}.practice-filters>.btn{flex:0 0 auto}
+.practice-stat{padding:18px 22px;display:flex;flex-direction:column;gap:8px}.practice-stat strong{font-size:28px}.practice-stat:nth-child(2) strong{color:#168354}.practice-stat:nth-child(3) strong{color:#c74850}
+.practice-row.practice-ac{background:#effbf4}.practice-row.practice-failed{background:#fff1f2}.practice-statement p{white-space:pre-wrap}.practice-statement h4{margin:18px 0 8px}.practice-editor{margin:20px 0}.practice-editor .code-editor{width:100%;min-height:340px}.practice-snapshot{background:#152033;color:#c6defa;border-radius:8px;padding:20px;overflow:auto;white-space:pre;font:13px/1.8 Consolas,monospace}
+@media(max-width:800px){.practice-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.practice-stat{padding:14px}.practice-editor .code-actions{flex-wrap:wrap}}

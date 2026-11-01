@@ -1,4 +1,4 @@
-# Check before Ant clean can remove build output. Do not stop a running server automatically.
+# Check before Ant rebuilds the application JAR. Do not stop a running server automatically.
 $taskJar = Join-Path $PSScriptRoot 'dist\studyfix.jar'
 if (Test-Path -LiteralPath $taskJar) {
     $taskJarHandle = $null

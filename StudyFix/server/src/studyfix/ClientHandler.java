@@ -86,7 +86,7 @@ public class ClientHandler implements Runnable {
         return true;
     }
 
-    private void leaveRoom() {
+    private synchronized void leaveRoom() {
         if (currentRoom != null) {
             Room previous = currentRoom;
             currentRoom = null;
@@ -95,6 +95,35 @@ public class ClientHandler implements Runnable {
         }
     }
 
+    synchronized void leaveCurrentRoom() {
+        closeReason="Rời phòng theo yêu cầu";
+        leaveRoom();
+    }
+
+    synchronized void leaveDeletedRoom(Room room) {
+        if(currentRoom!=room)return;
+        closeReason="Chủ phòng đã xóa phòng";
+        leaveRoom();
+        try {send("[ROOM_DELETED] "+room.getRoomId());}
+        catch(IOException ignored) { /* A disconnected member is already detached. */ }
+    }
+
+    synchronized Room createAndJoinRoom(String code) throws java.sql.SQLException {
+        if(!isConnected()||identity==null)throw new SecurityException("Phiên đăng nhập đã đóng.");
+        if(identity.role()!=Identity.Role.TEACHER)throw new SecurityException("Chỉ giáo viên được tạo phòng.");
+        if(currentRoom!=null)throw new IllegalStateException("Bạn đang ở trong một phòng. Hãy rời phòng hiện tại trước.");
+        Room room=server.createRoom(identity,code);
+        currentRoom=room;closeReason="Client đóng kết nối";room.addMember(this);return room;
+    }
+    private synchronized Room joinExistingRoom(String code) {
+        if(!isConnected()||identity==null)throw new SecurityException("Phiên đăng nhập đã đóng.");
+        if(currentRoom!=null)throw new IllegalStateException("Hãy rời phòng hiện tại trước.");
+        Room room=server.findRoom(code);if(room==null)return null;
+        synchronized(room) {
+            if(room.isExpired())return null;
+            currentRoom=room;closeReason="Client đóng kết nối";room.addMember(this);return room;
+        }
+    }
     private boolean handleDraftCommand(String raw) throws IOException {
         String verb = raw.split("[ \t]", 2)[0];
         if (!java.util.Set.of("/select", "/setline", "/delete", "/keep", "/setrange",
@@ -179,29 +208,25 @@ public class ClientHandler implements Runnable {
                     send("Bạn cần đăng nhập: /login username password");
                     continue;
                 }
-                if (command.equals("/create")) {
+                if (command.equals("/create") || raw.startsWith("/create ")) {
                     if (!requireOutsideRoom()) { continue; }
                     if (identity.role() != Identity.Role.TEACHER) { send("Chỉ giáo viên được tạo phòng."); continue; }
                     Room room;
-                    try { room = server.createRoom(identity); }
+                    try { room = createAndJoinRoom(command.equals("/create")?null:raw.substring(8)); }
+                    catch (IllegalArgumentException | IllegalStateException e) {send(e.getMessage());continue;}
                     catch (java.sql.SQLException e) { server.log("Lỗi tạo phòng: " + e); send("[SAVE_FAILED] Không tạo được phòng."); continue; }
                     String id = room.getRoomId();
-                    closeReason = "Client đóng kết nối";
-                    currentRoom = room;
-                    room.addMember(this);
-                    send("Đã tạo và tham gia phòng: " + id);
+                    send("Đã tạo và tham gia phòng: " + room.getRoomCode());
                     room.showCode(this);
                 } else if (command.equals("/join") || command.startsWith("/join ")) {
                     if (!requireOutsideRoom()) { continue; }
                     String id = command.substring(5).trim();
-                    Room room = server.rooms.get(id);
+                    Room room;
+                    try {room=joinExistingRoom(id);}catch(IllegalArgumentException|IllegalStateException e){send(e.getMessage());continue;}
                     if (room == null) {
                         send("Không tìm thấy phòng. Cách dùng: /join mã_phòng");
                     } else {
-                        closeReason = "Client đóng kết nối";
-                        currentRoom = room;
-                        room.addMember(this);
-                        send("Đã tham gia phòng: " + id);
+                        send("Đã tham gia phòng: " + room.getRoomCode());
                         room.showCode(this);
                     }
                 } else if (command.startsWith("/kick ")) {

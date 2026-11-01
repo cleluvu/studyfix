@@ -71,7 +71,7 @@ public final class ClassroomIntegrationTest {
             core.start();assignments.start();web.start();String base="http://127.0.0.1:"+web.port();
             check(call(base,"/api/classroom",null,null).status==401,"anonymous rejected");
             String teacher=login(base,"teacher","Teacher123!"),student=login(base,"student1","Student123!"),other=login(base,"student2","Student234!"),foreign=login(base,"teacher2","Teacher234!");
-            call(base,"/api/rooms/current/command",teacher,mapOf("action","CREATE_ROOM"));
+            call(base,"/api/rooms/current/command",teacher,mapOf("action","CREATE_ROOM","roomCode","Test "+UUID.randomUUID()));
             waitFor(()->call(base,"/api/rooms/current",teacher,null).status==200,"create room");roomId=room(base,teacher);
             join(base,student,roomId);join(base,other,roomId);
             call(base,"/api/rooms/current/command",student,mapOf("action","CHAT","text","Tin nhắn phiên học được lưu bền vững"));

@@ -117,6 +117,10 @@ check(!renderClassroom("CHAT","MEMBERS").includes('class="meeting-drawer"'),"sam
 setup();html=renderClassroom("","");
 check(html.includes('data-meeting-view="student"')&&html.includes("Challenge Terminal"),"student has dedicated editor and real judge terminal");
 check(html.includes('data-action="call-mic"')&&html.includes('data-action="call-camera"'),"meeting exposes real device controls");
+state.roomTab="screen";state.remoteStream={getAudioTracks:()=>[{readyState:"live"}]};state.screenPlaybackBlocked=true;
+html=renderClassroom("","");
+check(html.includes("Có luồng âm thanh chia sẻ")&&html.includes('data-action="play-screen-audio"'),"screen audio status and blocked-playback control are visible");
+state.remoteStream=null;state.screenPlaybackBlocked=false;state.roomTab="code";
 const { loadCurrentRoom } = await import("../static/core/polling.js");
 const beforeNetworkError = state.room;
 globalThis.fetch = async () => { throw new Error("Temporary network failure"); };

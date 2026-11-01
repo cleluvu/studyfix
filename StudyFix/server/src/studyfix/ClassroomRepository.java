@@ -133,12 +133,25 @@ final class ClassroomRepository {
         });
     }
     List<Map<String,Object>> chat(String room) throws SQLException {
-        return store.classroomTransaction(c -> {
+        return store.classroomTransaction(c -> readChat(c, room));
+    }
+    private List<Map<String,Object>> readChat(Connection c, String room) throws SQLException {
             List<Map<String,Object>> out=new ArrayList<>();
-            try(PreparedStatement s=c.prepareStatement("SELECT id,display_name,message,created_at FROM classroom_chat WHERE room_id=? ORDER BY id DESC LIMIT 80")) {
+            try(PreparedStatement s=c.prepareStatement("SELECT id,display_name,message,created_at,user_id FROM classroom_chat WHERE room_id=? ORDER BY id DESC LIMIT 80")) {
                 s.setString(1,room);
-                try(ResultSet r=s.executeQuery()){while(r.next())out.add(AssignmentJson.mapOf("id",r.getLong(1),"name",r.getString(2),"text",r.getString(3),"timestamp",r.getLong(4),"system",false));}
+                try(ResultSet r=s.executeQuery()){while(r.next())out.add(AssignmentJson.mapOf("id",r.getLong(1),"name",r.getString(2),"text",r.getString(3),"timestamp",r.getLong(4),"userId",r.getString(5),"system",false));}
             }Collections.reverse(out);return out;
+    }
+    Map<String,Object> chatStatus(String room, String userId, long after) throws SQLException {
+        return store.classroomTransaction(c -> {
+            List<Map<String,Object>> messages=readChat(c,room);
+            long latest=messages.isEmpty()?0:((Number)messages.getLast().get("id")).longValue();
+            long unread;
+            try(PreparedStatement s=c.prepareStatement("SELECT COUNT(*) FROM classroom_chat WHERE room_id=? AND user_id<>? AND id>?")) {
+                s.setString(1,room);s.setString(2,userId);s.setLong(3,Math.max(0,after));
+                try(ResultSet r=s.executeQuery()){r.next();unread=r.getLong(1);}
+            }
+            return AssignmentJson.mapOf("ok",true,"roomId",room,"messages",messages,"latestId",latest,"unreadCount",unread);
         });
     }
 }

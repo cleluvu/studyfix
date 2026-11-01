@@ -30,14 +30,14 @@ public final class Server implements AutoCloseable {
         ServerSocket candidateListener = null;
         ScreenShareRelay candidateScreenShare = null;
         try {
-            for (Store.StoredRoom row : store.loadRooms()) {
-                rooms.put(row.id(), new Room(this, row));
-            }
             // Cổng TCP điều khiển hiện tại (mặc định 5000).
             candidateListener = new ServerSocket(port);
             // Cổng truyền ảnh riêng (mặc định 5001); có thể dùng 0 để lấy cổng trống khi kiểm thử.
             int screenPort = Integer.getInteger("studyfix.screen.port", 5001);
             candidateScreenShare = new ScreenShareRelay(gateway(), screenPort);
+            for (Store.StoredRoom row : store.loadRooms()) {
+                rooms.put(row.id(), new Room(this, row));
+            }
         } catch (Exception e) {
             if (candidateScreenShare != null) candidateScreenShare.close();
             if (candidateListener != null) {
@@ -76,9 +76,44 @@ public final class Server implements AutoCloseable {
     void executeWriter(Runnable task) { workers.execute(task); }
     Store store() { return store; }
     Room createRoom(Identity owner) throws java.sql.SQLException {
+        return createRoom(owner,null);
+    }
+    Room createRoom(Identity owner,String publicCode) throws java.sql.SQLException {
         if (owner.role() != Identity.Role.TEACHER) throw new SecurityException("Chỉ giáo viên được tạo phòng.");
-        Room room = new Room(this, store.createRoom(owner, Room.INITIAL_CODE));
+        if(publicCode!=null)publicCode=RoomCode.normalize(publicCode);
+        Room room;
+        try {room = new Room(this, store.createRoom(owner, Room.INITIAL_CODE,publicCode));}
+        catch(java.sql.SQLException e) {
+            if(e.getMessage()!=null&&e.getMessage().contains("rooms.code_key"))throw new IllegalStateException("Mã phòng này đang được sử dụng. Hãy chọn mã khác.");
+            throw e;
+        }
         rooms.put(room.getRoomId(), room); log("Tạo phòng " + room.getRoomId() + " owner=" + owner.userId()); return room;
+    }
+    Room findRoom(String code) {
+        String key=RoomCode.key(code);
+        for(Room room:rooms.values())if(RoomCode.key(room.getRoomCode()).equals(key)&&!room.isExpired())return room;
+        // Internal numeric IDs remain accepted by existing native clients/integrations.
+        Room legacy=rooms.get(code);return legacy!=null&&!legacy.isExpired()?legacy:null;
+    }
+    List<String> deleteRoom(Identity owner,String id) throws java.sql.SQLException {
+        Room room=rooms.get(id);
+        if(room==null)throw new IllegalArgumentException("Phòng không còn tồn tại.");
+        List<String> members;
+        synchronized(room) {
+            if(!room.isOwner(owner))throw new SecurityException("Chỉ giáo viên tạo phòng được xóa phòng.");
+            if(room.isExpired())throw new IllegalArgumentException("Phòng đã được xóa.");
+            // Commit first: a failed write must leave the room usable.
+            store.expireRoom(id);
+            members=room.memberDetails().stream().map(Room.MemberView::sessionId).toList();
+            room.expire();rooms.remove(id,room);
+        }
+        // Client commands acquire client -> room locks. Never detach under the room lock.
+        for(String session:members) {
+            ClientHandler client=clients.get(session);
+            if(client!=null)client.leaveDeletedRoom(room);
+        }
+        log("Đã xóa phòng theo yêu cầu chủ phòng: "+room.getRoomCode());
+        return members;
     }
     public int port() { return listener.getLocalPort(); }
     public int screenSharePort() { return screenShare.port(); }

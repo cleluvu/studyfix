@@ -24,9 +24,14 @@ export function bindVideoElements() {
     local.play().catch(() => {});
   }
   const remote = document.getElementById("remote-screen-video");
-  if (remote && state.remoteStream && remote.srcObject !== state.remoteStream) {
-    remote.srcObject = state.remoteStream;
-    remote.play().catch(() => {});
+  if (remote && state.remoteStream) {
+    if(remote.srcObject !== state.remoteStream) remote.srcObject = state.remoteStream;
+    remote.play().catch(() => {
+      if (!state.screenPlaybackBlocked) {
+        state.screenPlaybackBlocked = true;
+        document.dispatchEvent(new CustomEvent("studyfix:playback-blocked"));
+      }
+    });
   }
 }
 export function captureMediaElements() {

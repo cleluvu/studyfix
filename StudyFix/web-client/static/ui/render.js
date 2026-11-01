@@ -1,28 +1,29 @@
 // Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
 
-import { state } from "../core/state.js";
+import { state, rememberView } from "../core/state.js";
 import { root, bindVideoElements, captureMediaElements, restoreMediaElements } from "../core/dom.js";
 import { renderPage } from "../core/router.js";
 import { esc, dateTime, initial, roleName, modeLabel } from "../shared/format.js";
 import { btn, pill } from "./components.js";
+import { unreadChatCount, markChatReadIfVisible, updateChatBadges } from "../features/classroom/chat-notifications.js";
 
 export function layout(content) {
   if (state.page === "room" && state.room) return content;
   const callOverlay=state.callJoined?`<aside class="floating-call"><strong>Cuộc gọi đang bật</strong><button data-action="navigate" data-page="room">Về phòng</button><button data-action="call-mic">${state.callLocal?.getAudioTracks().some(t=>t.enabled)?"Tắt mic":"Bật mic"}</button><button data-action="call-camera">${state.callLocal?.getVideoTracks().length?"Tắt camera":"Bật camera"}</button><button data-action="call-leave">Ngắt gọi</button></aside><div class="meeting-audio-bank">${(state.callRoster||[]).filter(p=>p.peerId!==state.peerId).map(p=>`<audio data-call-audio="${esc(p.peerId)}" autoplay></audio>`).join("")}</div>`:"";
   const nav = [
     ["overview", "⌂", "Tổng quan"],
-    ["room", "▣", "Phòng học"],
-    ["exercises", "▤", "Bài tập"],
+    ["exercises", "▤", "Luyện code"],
     ["contests", "♜", "Thi & xếp hạng"],
   ];
+  const unread=unreadChatCount();
   return `<div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-brand"><div class="brand-mark">&lt;/&gt;</div><div><h1>StudyFix</h1><p>Học cùng nhau · Tiến bộ mỗi ngày</p></div></div>
       <div class="side-label">Không gian học tập</div>
-      <nav class="nav">${nav.map(([id, icon, label]) => `<button class="nav-btn ${state.page === id ? "active" : ""}" data-action="navigate" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span></button>`).join("")}</nav>
+      <nav class="nav">${nav.map(([id, icon, label]) => `<button class="nav-btn ${state.page === id ? "active" : ""}" data-action="navigate" data-page="${id}"><span class="nav-icon">${icon}</span><span>${label}</span>${id==="room"?`<b class="chat-unread-badge nav-chat-badge" data-chat-unread aria-label="${unread} tin nhắn chưa đọc" ${unread?"":"hidden"}>${unread>99?"99+":unread}</b>`:""}</button>`).join("")}</nav>
       <div class="sidebar-bottom"><div class="server-health"><div><span class="health-dot"></span><strong>StudyFix kết nối</strong></div><small>TCP 5000 · Screen 5001 · Bài tập 5002 · Web 8080</small></div><div class="sidebar-copyright">© 2026 StudyFix · Học và thực hành lập trình</div></div>
     </aside><div class="mobile-nav-overlay" data-action="close-nav"></div>
-    <div class="main-column"><header class="topbar"><button class="mobile-menu" data-action="toggle-nav">☰</button><span class="crumb">${{ overview: "Tổng quan", room: "Phòng học", exercises: "Bài tập", contests: "Thi & xếp hạng" }[state.page] || "StudyFix"}</span><div class="global-search"><span class="search-icon">⌕</span><input id="global-search" class="field" placeholder="Tìm kiếm phòng, học sinh, bài tập…" value="${esc(state.globalQuery || "")}" /></div><div class="topbar-spacer"></div><button class="icon-btn" title="Làm mới" data-action="refresh">⟳</button><div class="profile-menu"><div class="avatar">${esc(initial(state.identity?.displayName))}</div><div><strong>${esc(state.identity?.displayName || state.identity?.username)}</strong><small>${roleName(state.identity?.role)}</small></div><button class="btn btn-ghost btn-sm" data-action="logout">⌄</button></div></header><main class="workspace">${content}</main></div>
+    <div class="main-column"><header class="topbar"><button class="mobile-menu" data-action="toggle-nav">☰</button><span class="crumb">${{ overview: "Tổng quan", room: "Phòng học", exercises: "Luyện code", contests: "Thi & xếp hạng" }[state.page] || "StudyFix"}</span><div class="global-search"><span class="search-icon">⌕</span><input id="global-search" class="field" placeholder="Tìm kiếm phòng, học sinh, bài tập…" value="${esc(state.page === "overview" ? state.roomSearch || "" : state.globalQuery || "")}" maxlength="160" /></div><div class="topbar-spacer"></div><button class="icon-btn" title="Làm mới" data-action="refresh">⟳</button><div class="profile-menu"><div class="avatar">${esc(initial(state.identity?.displayName))}</div><div><strong>${esc(state.identity?.displayName || state.identity?.username)}</strong><small>${roleName(state.identity?.role)}</small></div><button class="btn btn-ghost btn-sm" data-action="logout">⌄</button></div></header><main class="workspace">${content}</main></div>
   </div>${callOverlay}`;
 }
 
@@ -39,27 +40,26 @@ export function renderOverview() {
   const room = state.room,
     teacher = state.identity.role === "TEACHER";
   const todo = state.assignments.filter((a) => a.status === "OPEN").length;
-  return `${pageHeader("◫", "Tổng quan", `Chào ${esc(state.identity.displayName)} — sẵn sàng cho buổi học hôm nay?`, room ? `<span class="chip green"><span class="chip-dot"></span>Đang ở phòng ${esc(room.roomId)}</span>` : `<span class="chip"><span class="chip-dot"></span>Đã đăng nhập</span>`)}
-    <section class="grid stats-grid"><div class="card stat-card"><div class="stat-icon">▣</div><div><div class="stat-label">Phòng hiện tại</div><div class="stat-number">${room ? 1 : 0}</div><div class="stat-foot">${room ? `Mã ${esc(room.roomId)}` : "Chưa tham gia phòng"}</div></div></div><div class="card stat-card"><div class="stat-icon teal">▤</div><div><div class="stat-label">Bài đang mở</div><div class="stat-number">${todo}</div><div class="stat-foot">${teacher ? "Bài tập được giao trong phòng" : "Bài được giao cho bạn"}</div></div></div><div class="card stat-card"><div class="stat-icon green">✓</div><div><div class="stat-label">Thành viên trực tuyến</div><div class="stat-number">${room ? room.members.length : 0}</div><div class="stat-foot">${room ? "Cập nhật từ server" : "Sẽ hiện khi vào phòng"}</div></div></div><div class="card stat-card"><div class="stat-icon purple">♜</div><div><div class="stat-label">Kỳ thi</div><div class="stat-number">${state.contests.length}</div><div class="stat-foot">${teacher ? "Quản lý kỳ thi của phòng" : "Kỳ thi trong phòng"}</div></div></div></section>
-    <section class="grid dashboard-grid"><div class="card"><div class="card-head"><div><h3>Đi nhanh đến tác vụ</h3><p>Các chức năng chính được gom về một nơi</p></div></div><div class="card-body"><div class="quick-actions"><button class="quick-action" data-action="navigate" data-page="room"><span class="qa-icon">⌘</span><span><strong>Phòng học & code cộng tác</strong><small>Chỉnh sửa code cùng phòng, chat, thành viên và chia sẻ màn hình.</small></span></button><button class="quick-action" data-action="navigate" data-page="exercises"><span class="qa-icon">▤</span><span><strong>${teacher ? "Ngân hàng & giao bài" : "Bài được giao"}</strong><small>${teacher ? "Chọn bài, đặt phạm vi và hạn nộp ngay trên danh sách." : "Mở đề, viết code, nộp bài và xem kết quả chấm."}</small></span></button><button class="quick-action" data-action="navigate" data-page="contests"><span class="qa-icon">♜</span><span><strong>Thi & xếp hạng</strong><small>${teacher ? "Tạo kỳ thi từ các bài trong ngân hàng." : "Vào kỳ thi, nộp bài và xem kết quả của chính mình."}</small></span></button><button class="quick-action" data-action="refresh"><span class="qa-icon">⟳</span><span><strong>Đồng bộ trạng thái</strong><small>Lấy trạng thái phòng và dữ liệu mới nhất từ server.</small></span></button></div></div></div>
-    <div class="card"><div class="card-head"><div><h3>${teacher ? "Phòng học của hệ thống" : "Vào phòng học"}</h3><p>${teacher ? "Các phòng hiện có trong hệ thống" : "Nhập mã phòng do giáo viên cung cấp"}</p></div><span class="push"></span></div><div class="card-body">${room ? `<div class="assignment-row"><div class="task-number">⌘</div><div class="assignment-row-main"><strong>Phòng ${esc(room.roomId)}</strong><small>${room.members.length} thành viên · version ${room.version}</small></div>${btn("Mở phòng →", "navigate", "btn-primary", 'data-page="room"')}</div>` : teacher ? renderRoomListCompact() : `<div class="form-row"><label>Mã phòng</label><input class="field" id="overview-room-code" placeholder="Ví dụ: LTM-01" /></div><button class="btn btn-primary wide" data-action="join-room-overview">Tham gia phòng →</button>`}</div></div></section>
-    <div style="height:16px"></div><section class="card"><div class="card-head"><div><h3>${teacher ? "Bài giao gần đây" : "Bài tập được giao"}</h3><p>Danh sách bài hiện hành trong phòng</p></div><span class="push"></span>${btn("Xem tất cả →", "navigate", "btn-soft btn-sm", 'data-page="exercises"')}</div><div class="card-body">${room ? renderAssignmentRows(state.assignments.slice(0, 5), teacher) : `<div class="empty-slim">Vào phòng học để xem bài tập và kỳ thi.</div>`}</div></section>`;
+  return `${pageHeader("◫", "Tổng quan", `Chào ${esc(state.identity.displayName)} — sẵn sàng cho buổi học hôm nay?`, room ? `<span class="chip green"><span class="chip-dot"></span>Đang ở phòng ${esc(room.roomCode||room.roomId)}</span>` : `<span class="chip"><span class="chip-dot"></span>Đã đăng nhập</span>`)}
+    <section class="grid stats-grid"><div class="card stat-card"><div class="stat-icon">▣</div><div><div class="stat-label">Phòng hiện tại</div><div class="stat-number">${room ? 1 : 0}</div><div class="stat-foot">${room ? `Mã ${esc(room.roomCode||room.roomId)}` : "Chưa tham gia phòng"}</div></div></div><div class="card stat-card"><div class="stat-icon teal">▤</div><div><div class="stat-label">Bài đang mở</div><div class="stat-number">${todo}</div><div class="stat-foot">${teacher ? "Bài tập được giao trong phòng" : "Bài được giao cho bạn"}</div></div></div><div class="card stat-card"><div class="stat-icon green">✓</div><div><div class="stat-label">Thành viên trực tuyến</div><div class="stat-number">${room ? room.members.length : 0}</div><div class="stat-foot">${room ? "Cập nhật từ server" : "Sẽ hiện khi vào phòng"}</div></div></div><div class="card stat-card"><div class="stat-icon purple">♜</div><div><div class="stat-label">Kỳ thi</div><div class="stat-number">${state.contests.length}</div><div class="stat-foot">${teacher ? "Quản lý kỳ thi của phòng" : "Kỳ thi trong phòng"}</div></div></div></section>
+    <section class="grid dashboard-grid"><div class="card"><div class="card-head"><div><h3>Đi nhanh đến tác vụ</h3><p>Các chức năng chính được gom về một nơi</p></div></div><div class="card-body"><div class="quick-actions">${room ? `<button class="quick-action" data-action="navigate" data-page="room"><span class="qa-icon">⌘</span><span><strong>Phòng học & code cộng tác</strong><small>Chỉnh sửa code cùng phòng, chat, thành viên và chia sẻ màn hình.</small></span></button>` : ""}<button class="quick-action" data-action="navigate" data-page="exercises"><span class="qa-icon">▤</span><span><strong>Luyện code</strong><small>Tự chọn bài, luyện code và theo dõi từng phiên bản nộp.</small></span></button><button class="quick-action" data-action="navigate" data-page="contests"><span class="qa-icon">♜</span><span><strong>Thi & xếp hạng</strong><small>${teacher ? "Tạo kỳ thi từ các bài trong ngân hàng." : "Vào kỳ thi, nộp bài và xem kết quả của chính mình."}</small></span></button><button class="quick-action" data-action="refresh"><span class="qa-icon">⟳</span><span><strong>Đồng bộ trạng thái</strong><small>Lấy trạng thái phòng và dữ liệu mới nhất từ server.</small></span></button></div></div></div>
+    <div class="card"><div class="card-head"><div><h3>Phòng học của hệ thống</h3><p>Tất cả phòng hiện có · ${state.roomsTotal||0} phòng</p></div></div><div class="card-body">${renderRoomListCompact()}</div></div></section>
+    <div style="height:16px"></div><section class="card"><div class="card-head"><div><h3>${teacher ? "Bài giao gần đây" : "Bài tập được giao"}</h3><p>Danh sách bài hiện hành trong phòng</p></div><span class="push"></span>${btn("Xem tất cả →", "room-assignments", "btn-soft btn-sm", state.room?"":"disabled")}</div><div class="card-body">${room ? renderAssignmentRows(state.assignments.slice(0, 5), teacher) : `<div class="empty-slim">Vào phòng học để xem bài tập và kỳ thi.</div>`}</div></section>`;
 }
 
 export function renderRoomListCompact() {
-  if (!state.rooms.length)
-    return `<div class="empty-slim">Chưa có phòng. Tạo phòng mới để bắt đầu buổi học.</div><button class="btn btn-primary wide" data-action="create-room">＋ Tạo phòng học</button>`;
-  return `<div>${state.rooms
-    .slice(0, 4)
-    .map(
-      (r) =>
-        `<div class="assignment-row"><div class="task-number">⌘</div><div class="assignment-row-main"><strong>Phòng ${esc(r.roomId)}</strong><small>${r.memberCount} thành viên · v${r.version}</small></div>${btn("Vào", "join-room", "btn-soft btn-sm", `data-room-id="${esc(r.roomId)}"`)}</div>`,
-    )
-    .join(
-      "",
-    )}</div><button class="btn btn-primary wide" style="margin-top:12px" data-action="create-room">＋ Tạo phòng mới</button>`;
+  const current=state.room?.roomId;
+  const list=(state.rooms||[]).map(r=>{
+    const isCurrent=current===r.roomId;
+    return `<div class="assignment-row"><div class="task-number">⌘</div><div class="assignment-row-main"><strong>Phòng ${esc(r.roomCode||r.roomId)}</strong><small>${r.memberCount} thành viên · v${r.version}${isCurrent?" · Đang tham gia phòng":""}</small></div><div class="room-row-actions">${isCurrent?btn("Vào phòng", "navigate", "btn-primary btn-sm", 'data-page="room"'):btn("Vào", "join-room", "btn-soft btn-sm", `data-room-id="${esc(r.roomCode||r.roomId)}" ${current?'disabled title="Rời phòng hiện tại trước khi vào phòng khác"':""}`)}${isCurrent?btn("Rời phòng","leave-room","btn-soft btn-sm",`data-room-id="${esc(r.roomId)}"`):""}${state.manualRoomDelete&&r.isMine&&state.identity.role==="TEACHER"?btn("Xóa","delete-room","btn-danger btn-sm",`data-room-id="${esc(r.roomId)}" aria-label="Xóa phòng ${esc(r.roomCode||r.roomId)}"`):""}</div></div>`;
+  }).join("")||`<div class="empty-slim">${state.roomSearch?.trim()?"Không tìm thấy phòng phù hợp. Thử từ khóa khác.":"Chưa có phòng."}</div>`;
+  const search=`<form id="room-search-form" class="room-code-form" role="search"><label for="room-search">Tìm kiếm phòng</label><div><input id="room-search" name="q" type="search" class="field" placeholder="Nhập mã phòng cần tìm…" maxlength="160" value="${esc(state.roomSearch||"")}" autocomplete="off" /><button class="btn btn-soft" type="submit">Tìm</button></div></form>`;
+  const page=state.roomPage||1,pages=state.roomsTotalPages||1;
+  const pagination=`<div class="room-pagination">${btn("← Trước", "rooms-page", "btn-soft btn-sm", `data-page="${page-1}" ${page<=1?"disabled":""}`)}<span>Trang ${page} / ${pages} · ${state.roomsTotal||0} phòng</span>${btn("Sau →", "rooms-page", "btn-soft btn-sm", `data-page="${page+1}" ${page>=pages?"disabled":""}`)}</div>`;
+  const create=!current&&state.identity.role==="TEACHER"?`<form id="create-room-form" class="room-code-form"><label for="new-room-code">Tạo phòng bằng mã của bạn</label><div><input id="new-room-code" name="roomCode" class="field" placeholder="Ví dụ: Lớp Java A" value="${esc(state.newRoomCode||"")}" maxlength="160" required /><button class="btn btn-primary" type="submit" ${state.customRoomCodes?"":"disabled"}>＋ Tạo phòng</button></div>${!state.customRoomCodes?'<small>Khởi động lại Server Manager để sử dụng mã phòng tự chọn.</small>':'<small>Mã dài tối đa 80 ký tự. Phòng được giữ lại cho đến khi chủ phòng bấm Xóa.</small>'}</form>`:"";
+  const join=!current?`<form id="join-room-form" class="room-code-form"><label for="overview-room-code">Tham gia bằng mã phòng</label><div><input id="overview-room-code" name="roomId" class="field" placeholder="Nhập đúng mã giảng viên cung cấp" value="${esc(state.joinRoomCode||"")}" required/><button class="btn btn-soft" type="submit">Tham gia</button></div></form>`:'<p class="subtle-text">Rời phòng hiện tại trước khi tạo hoặc tham gia phòng khác.</p>';
+  return `${search}${state.roomsError?`<div class="notice-box warn">${esc(state.roomsError)}</div>`:""}${list}${pagination}${create}${join}`;
 }
-
 export function renderAssignmentRows(list, teacher) {
   if (!list?.length)
     return `<div class="empty-slim">${teacher ? "Chưa có bài nào được giao trong phòng." : "Chưa có bài được giao cho bạn."}</div>`;
@@ -92,7 +92,11 @@ export function render() {
     root.innerHTML = renderLogin();
     return;
   }
+  if (state.page === "room" && !state.room) {state.page = "overview";state.roomTab = "code";}
+  rememberView();
   let content = renderPage(state.page);
+  const previousChat=document.querySelector("#chat-list");
+  const chatScroll=previousChat?{top:previousChat.scrollTop,atBottom:previousChat.scrollHeight-previousChat.scrollTop-previousChat.clientHeight<=32}:null;
   const previousMedia = captureMediaElements();
   const scrollPositions=Array.from(document.querySelectorAll?.(".meeting-content, .meeting-code-grid, .meeting-drawer, .meeting-rail")||[]).map(el=>({selector:`.${el.classList[0]}`,top:el.scrollTop,left:el.scrollLeft}));
   root.innerHTML = layout(content) + renderModal();
@@ -113,5 +117,6 @@ export function render() {
   }
   bindVideoElements();
   const chat = document.querySelector("#chat-list");
-  if (chat) chat.scrollTop = chat.scrollHeight;
+  if (chat) chat.scrollTop = !chatScroll||chatScroll.atBottom?chat.scrollHeight:chatScroll.top;
+  markChatReadIfVisible();updateChatBadges();
 }

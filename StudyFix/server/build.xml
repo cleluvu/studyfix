@@ -84,8 +84,7 @@
         <javac srcdir="test" destdir="${build.dir}/classroom-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
             <classpath path="${javac.classpath};${build.classes.dir}"/>
         </javac>
-        <java classname="studyfix.ClassroomIntegrationTest" fork="true" failonerror="true" timeout="60000">
-            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+        <java classname="studyfix.ClassroomIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
@@ -93,13 +92,39 @@
         </java>
     </target>
     <target name="meeting-test" depends="classroom-test" description="Audio/video meeting authorization and signaling">
-        <java classname="studyfix.MeetingCallIntegrationTest" fork="true" failonerror="true" timeout="60000">
+        <java classname="studyfix.MeetingCallIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="chat-test" depends="classroom-test" description="Room chat authorization, author IDs and unread counts">
+        <java classname="studyfix.ChatNotificationIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="room-test" depends="classroom-test" description="Custom room codes, five-room pages and manual owner deletion">
+        <java classname="studyfix.RoomLifecycleIntegrationTest" fork="true" failonerror="true" timeout="90000">
             <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
         </java>
     </target>
-    <target name="integration-test" depends="meeting-test" description="Java 26 compile + real TCP/SQLite tests on localhost">
+    <target name="practice-test" depends="classroom-test" description="Room-independent practice, private snapshots and shared grading worker">
+        <java classname="studyfix.PracticeIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="practice-docker-test" depends="classroom-test" description="Real Docker Java practice run and AC/WA/CE submissions">
+        <java classname="studyfix.PracticeDockerIntegrationTest" fork="true" failonerror="true" timeout="240000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="integration-test" depends="meeting-test,chat-test,room-test,practice-test" description="Java 26 compile + real TCP/SQLite tests on localhost">
         <mkdir dir="${build.dir}/integration-classes"/>
         <javac srcdir="src" destdir="${build.dir}/integration-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
             <classpath path="${javac.classpath}"/>
@@ -107,82 +132,70 @@
         <javac srcdir="test" destdir="${build.dir}/integration-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
         </javac>
-        <java classname="studyfix.assignment.AssignmentModuleSelfTest" fork="true" failonerror="true" timeout="60000">
-            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        <java classname="studyfix.assignment.AssignmentModuleSelfTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
         </java>
-        <java classname="studyfix.assignment.AssignmentProtocolIntegrationTest" fork="true" failonerror="true" timeout="90000">
-            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        <java classname="studyfix.assignment.AssignmentProtocolIntegrationTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
         </java>
-        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">
-            <jvmarg value="-Dstudyfix.screen.port=0"/>
+        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
-        <java classname="studyfix.RecoveryTest" fork="true" failonerror="true" timeout="60000">
-            <jvmarg value="-Dstudyfix.screen.port=0"/>
+        <java classname="studyfix.RecoveryTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
-        <java classname="studyfix.HistoryTest" fork="true" failonerror="true" timeout="60000">
-            <jvmarg value="-Dstudyfix.screen.port=0"/>
+        <java classname="studyfix.HistoryTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
-        <java classname="studyfix.IntegrationTest" fork="true" failonerror="true" timeout="120000">
-            <jvmarg value="-Dstudyfix.screen.port=0"/>
+        <java classname="studyfix.IntegrationTest" fork="true" failonerror="true" timeout="120000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
         </java>
-        <java classname="studyfix.WebGatewayIntegrationTest" fork="true" failonerror="true" timeout="45000">
-            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+        <java classname="studyfix.WebGatewayIntegrationTest" fork="true" failonerror="true" timeout="45000">            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
         </java>
-        <java classname="studyfix.ScreenShareRelayIntegrationTest" fork="true" failonerror="true" timeout="60000">
-            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        <java classname="studyfix.ScreenShareRelayIntegrationTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
         </java>
-        <java classname="studyfix.PersonOneTest" fork="true" failonerror="true" timeout="90000">
-            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        <java classname="studyfix.PersonOneTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstudyfix.screen.port=0"/>
         </java>
-        <java classname="studyfix.ServerAdminLiveTest" fork="true" failonerror="true" timeout="90000">
-            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
+        <java classname="studyfix.ServerAdminLiveTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstudyfix.screen.port=0"/>
             <jvmarg value="-Dstudyfix.assignment.port=0"/>
             <jvmarg value="-Dstudyfix.web.port=0"/>
         </java>
-        <java classname="studyfix.ConsoleHistoryInterleaveTest" fork="true" failonerror="true" timeout="30000">
-            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        <java classname="studyfix.ConsoleHistoryInterleaveTest" fork="true" failonerror="true" timeout="30000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
         </java>
-        <java classname="studyfix.ConsoleClientTest" fork="true" failonerror="true" timeout="60000">
-            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        <java classname="studyfix.ConsoleClientTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
@@ -193,8 +206,7 @@
         <javac srcdir="test" destdir="${build.dir}/edit-session-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
             <classpath path="${javac.classpath};${build.classes.dir}"/>
         </javac>
-        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">
-            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/edit-session-classes"/>
+        <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/edit-session-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>

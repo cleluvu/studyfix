@@ -83,7 +83,7 @@ export function renderPersonalWorkspace() {
 }
 
 export function renderSubmissionResult(s) {
-  return `<div class="submission-status"><strong>${humanVerdict(s.verdict || s.status)}</strong>${pill(humanVerdict(s.verdict || s.status), statusClass(s.verdict || s.status))}<span class="subtle-text">${s.passedTests ?? 0}/${s.totalTests ?? 0} test đạt</span><div class="result-bar"><span style="width:${s.totalTests ? Math.max(0, Math.min(100, ((s.passedTests || 0) / s.totalTests) * 100)) : 0}%"></span></div></div><p class="subtle-text">${esc(s.feedback || "")}</p>${s.testResults?.length ? `<div>${s.testResults.map((t, i) => `<div class="test-row"><strong>Test ${t.index || i + 1} ${pill(t.verdict || t.status || "—", statusClass(t.verdict || t.status))}</strong><div>Input<pre>${esc(t.input || "Ẩn")}</pre></div><div>Kết quả công khai<pre>${esc(t.actualOutput || t.output || t.message || "Chi tiết bị giới hạn an toàn")}</pre></div></div>`).join("")}</div>` : ""}`;
+  return `<div class="submission-status"><strong>${humanVerdict(s.verdict || s.status)}</strong>${pill(humanVerdict(s.verdict || s.status), statusClass(s.verdict || s.status))}<span class="subtle-text">${s.passedTests ?? 0}/${s.totalTests ?? 0} test đạt</span><div class="result-bar"><span style="width:${s.totalTests ? Math.max(0, Math.min(100, ((s.passedTests || 0) / s.totalTests) * 100)) : 0}%"></span></div></div><p class="subtle-text">${esc(s.feedback || "")}</p>${s.testResults?.length ? `<div>${s.testResults.map((t, i) => `<div class="test-row"><strong>Test ${t.index || i + 1} ${pill(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"—"), statusClass(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"")))}</strong><div>Input<pre>${esc(t.input || "Ẩn")}</pre></div><div>Kết quả công khai<pre>${esc(t.actualOutput || t.output || t.message || "Chi tiết bị giới hạn an toàn")}</pre></div></div>`).join("")}</div>` : ""}`;
 }
 
 export function renderSubmissions(rows) {
@@ -102,6 +102,7 @@ export async function openAssignment(assignmentId) {
   const item = state.assignments.find((a) => a.id === assignmentId);
   if (item && (item.mode === "DEBUG_COLLAB" || item.mode === "DEBUG")) {
     state.page = "room";
+    state.meetingClosed=false;
     state.roomTab = "code";
     state.activeDebugAssignment = item;
     await fetchDebugExercise(item);

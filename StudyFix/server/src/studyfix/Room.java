@@ -6,6 +6,8 @@ import java.nio.charset.StandardCharsets;
 
 public class Room {
     private final String roomId;
+    private final String roomCode;
+    private volatile boolean expired;
     private final String ownerId;
     private final Server server;
     private final Map<String, ClientHandler> members = new LinkedHashMap<>();
@@ -33,6 +35,7 @@ public class Room {
     Room(Server server, Store.StoredRoom stored) throws java.sql.SQLException {
         this.server = server;
         this.roomId = stored.id();
+        this.roomCode = stored.publicCode();
         this.ownerId = stored.owner();
         this.code = stored.code();
         this.version = stored.version();
@@ -40,6 +43,9 @@ public class Room {
         for (CodeRevision revision : stored.history()) history.put(revision.getVersion(), revision);
     }
     public String getRoomId() { return roomId; }
+    public String getRoomCode() {return roomCode;}
+    boolean isExpired(){return expired;}
+    void expire(){expired=true;}
     public synchronized boolean isMember(String sessionId) { return members.containsKey(sessionId); }
     public boolean isOwner(Identity identity) {
         return identity != null && identity.role() == Identity.Role.TEACHER && ownerId.equals(identity.userId());
@@ -144,6 +150,7 @@ public class Room {
         return version;
     }
     public synchronized void addMember(ClientHandler client) {
+        if(expired)throw new IllegalStateException("Chủ phòng đã xóa phòng. Hãy tạo hoặc chọn phòng khác.");
         members.put(client.getMemberId(), client);
         broadcast("[Hệ thống] " + client.getDisplayName()
                 + " đã vào phòng " + roomId + ".");

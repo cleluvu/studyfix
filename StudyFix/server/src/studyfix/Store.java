@@ -10,7 +10,7 @@ import java.util.logging.Logger;
 
 /** One serialized JDBC connection. RAM is updated only after commit returns. */
 final class Store implements AutoCloseable {
-    record StoredRoom(String id, String owner, String code, long version, List<CodeRevision> history) { }
+    record StoredRoom(String id, String owner, String code, long version, List<CodeRevision> history, String publicCode) { }
     private static final Logger LOG = Logger.getLogger(Store.class.getName());
     private final String databaseUrl;
     private Connection db;
@@ -28,6 +28,7 @@ final class Store implements AutoCloseable {
                 s.execute("CREATE TABLE IF NOT EXISTS revisions (room_id INTEGER NOT NULL REFERENCES rooms(room_id), version INTEGER NOT NULL, editor_id TEXT NOT NULL, editor_name TEXT NOT NULL, created_at TEXT NOT NULL, code TEXT NOT NULL, PRIMARY KEY(room_id,version))");
             }
             migrateHistory();
+            migrateRoomCodes();
             transaction(() -> { ClassroomRepository.migrate(db); return null; });
             seed("teacher", "Teacher123!", "Giáo viên demo", Identity.Role.TEACHER);
             seed("teacher2", "Teacher234!", "Giáo viên 2", Identity.Role.TEACHER);
@@ -134,6 +135,19 @@ final class Store implements AutoCloseable {
             s.setString(3, Passwords.hash(secret)); s.setString(4, name); s.setString(5, role.name()); s.executeUpdate();
         } finally { Arrays.fill(secret, '\0'); }
     }
+    private void migrateRoomCodes() throws SQLException {
+        transaction(() -> {
+            Set<String> columns=new HashSet<>();
+            try(Statement s=db.createStatement();ResultSet r=s.executeQuery("PRAGMA table_info(rooms)")){while(r.next())columns.add(r.getString("name"));}
+            try(Statement s=db.createStatement()) {
+                if(!columns.contains("public_code"))s.execute("ALTER TABLE rooms ADD COLUMN public_code TEXT");
+                if(!columns.contains("code_key"))s.execute("ALTER TABLE rooms ADD COLUMN code_key TEXT");
+                if(!columns.contains("active"))s.execute("ALTER TABLE rooms ADD COLUMN active INTEGER NOT NULL DEFAULT 1");
+                s.execute("UPDATE rooms SET public_code=CAST(room_id AS TEXT),code_key=CAST(room_id AS TEXT) WHERE public_code IS NULL");
+                s.execute("CREATE UNIQUE INDEX IF NOT EXISTS room_active_code ON rooms(code_key) WHERE active=1");
+            }return null;
+        });
+    }
     synchronized Identity login(String username, char[] password) throws SQLException {
         try {
             requireAvailable();
@@ -149,10 +163,10 @@ final class Store implements AutoCloseable {
     synchronized List<StoredRoom> loadRooms() throws SQLException {
         requireAvailable();
         List<StoredRoom> result = new ArrayList<>();
-        try (Statement s = db.createStatement(); ResultSet r = s.executeQuery("SELECT * FROM rooms ORDER BY room_id")) {
+        try (Statement s = db.createStatement(); ResultSet r = s.executeQuery("SELECT * FROM rooms WHERE active=1 ORDER BY room_id")) {
             while (r.next()) {
                 String id = r.getString("room_id");
-                result.add(new StoredRoom(id, r.getString("owner_id"), r.getString("code"), r.getLong("version"), loadHistory(id)));
+                result.add(new StoredRoom(id, r.getString("owner_id"), r.getString("code"), r.getLong("version"), loadHistory(id),r.getString("public_code")));
             }
         }
         return result;
@@ -172,16 +186,33 @@ final class Store implements AutoCloseable {
         return result;
     }
     synchronized StoredRoom createRoom(Identity owner, String code) throws SQLException {
+        return createRoom(owner,code,null);
+    }
+    synchronized StoredRoom createRoom(Identity owner, String code, String requestedCode) throws SQLException {
         return transaction(() -> {
             String id;
             try (PreparedStatement s = db.prepareStatement("INSERT INTO rooms(owner_id,code,version) VALUES(?,?,0)")) {
                 s.setString(1, owner.userId()); s.setString(2, code); s.executeUpdate();
             }
             try (Statement s = db.createStatement(); ResultSet r = s.executeQuery("SELECT last_insert_rowid()")) { r.next(); id = r.getString(1); }
+            String publicCode=requestedCode==null?id:RoomCode.normalize(requestedCode);
+            // Preserve legacy console /create while avoiding a numeric code chosen by another room.
+            if(requestedCode==null) {
+                try(PreparedStatement s=db.prepareStatement("SELECT 1 FROM rooms WHERE active=1 AND code_key=?")) {
+                    s.setString(1,RoomCode.key(publicCode));
+                    try(ResultSet r=s.executeQuery()){if(r.next())publicCode=id+"-"+UUID.randomUUID().toString().substring(0,8);}
+                }
+            }
+            try(PreparedStatement s=db.prepareStatement("UPDATE rooms SET public_code=?,code_key=? WHERE room_id=?")) {
+                s.setString(1,publicCode);s.setString(2,RoomCode.key(publicCode));s.setString(3,id);s.executeUpdate();
+            }
             CodeRevision initial = new CodeRevision(0, "SYSTEM", "Hệ thống", code);
             insertRevision(id, initial);
-            return new StoredRoom(id, owner.userId(), code, 0, List.of(initial));
+            return new StoredRoom(id, owner.userId(), code, 0, List.of(initial),publicCode);
         });
+    }
+    synchronized void expireRoom(String id) throws SQLException {
+        transaction(() -> {try(PreparedStatement s=db.prepareStatement("UPDATE rooms SET active=0 WHERE room_id=?")){s.setString(1,id);s.executeUpdate();}return null;});
     }
     synchronized void saveRevision(String room, long expected, CodeRevision revision) throws SQLException {
         transaction(() -> {

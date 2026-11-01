@@ -79,6 +79,9 @@ export const humanVerdict = (value) =>
     FAILED: "FAILED",
     WRONG_ANSWER: "Sai đáp án",
     COMPILATION_ERROR: "Lỗi biên dịch",
+    COMPILE_ERROR: "Lỗi biên dịch",
+    MEMORY_LIMIT_EXCEEDED: "Quá bộ nhớ",
+    OUTPUT_LIMIT_EXCEEDED: "Quá giới hạn đầu ra",
     RUNTIME_ERROR: "Lỗi thực thi",
     TIME_LIMIT_EXCEEDED: "Quá thời gian",
     QUEUED: "Đang chờ",
@@ -97,12 +100,14 @@ export const statusClass = (value) =>
           "FAILED",
           "WRONG_ANSWER",
           "COMPILATION_ERROR",
+          "COMPILE_ERROR",
+          "MEMORY_LIMIT_EXCEEDED",
+          "OUTPUT_LIMIT_EXCEEDED",
           "RUNTIME_ERROR",
           "TIME_LIMIT_EXCEEDED",
-          "INTERNAL_ERROR",
         ].includes(String(value || "").toUpperCase())
       ? "failed"
-      : "neutral";
+      : ["QUEUED","RUNNING"].includes(String(value||"").toUpperCase())?"medium":"neutral";
 
 export function nowMs() {
   return Date.now();

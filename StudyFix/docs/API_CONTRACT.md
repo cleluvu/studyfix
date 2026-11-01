@@ -1,5 +1,21 @@
 # StudyFix Web Gateway — API contract
 
+## Luyện code không cần phòng
+
+`POST /api/assignments` hỗ trợ `PRACTICE_LIST/GET/SUBMIT/RUN/SUBMISSIONS/RESULT` cho cả giáo viên/sinh viên đã đăng nhập, không cần membership phòng. Snapshot/kết quả riêng của chính người gọi; lịch sử tách khỏi assignment/contest, queue/sandbox dùng chung. [Contract đầy đủ](CODE_PRACTICE_VI.md).
+
+## Mã phòng và directory hiện hành
+
+Web `CREATE_ROOM` bắt buộc `roomCode` tự nhập; tạo/vào phòng đồng bộ trả 200 cùng `roomId`/`roomCode`. GET `/api/rooms?page=1&pageSize=5` liệt kê tất cả phòng chưa bị xóa, kể cả phòng trống, cố định 5 phòng/trang. Phòng được giữ qua restart. `DELETE_ROOM` nhận ID nội bộ, chỉ giáo viên chủ phòng được xóa; thành viên rời phòng nhưng giữ đăng nhập. JOIN tra mã công khai trước; bài nộp dùng ID số bất biến. Tái sử dụng mã đã xóa nhận ID mới. `/api/me` và `/api/rooms/current` trả thêm `roomCode`. POST `/api/auth/departing` báo đóng tab có khoảng đệm 8 giây. [Contract chi tiết](ROOM_CODES_AND_LIFECYCLE_VI.md).
+
+`LEAVE_ROOM` qua `/api/rooms/current/command` trả 200 sau khi đã tách thành viên khỏi phòng, kèm `leftRoomId`. Nút **Rời cuộc họp** chỉ dừng media và về Tổng quan, giữ tham gia phòng; **Rời phòng** trong danh sách mới gửi `LEAVE_ROOM`. [Quy tắc điều hướng và refresh](MEETING_UI_VI.md).
+
+## Chat và tin chưa đọc
+
+`GET /api/rooms/current/chat?after=N` yêu cầu bearer session và membership phòng hiện tại. Trả `messages` (80 tin gần nhất theo thứ tự tăng dần), `latestId` và `unreadCount`. Mỗi tin có `id`, `userId`, `name`, `text`, `timestamp`, `system=false`. `unreadCount` đếm tất cả tin của người khác với ID lớn hơn N trong đúng phòng, không bị giới hạn bởi 80 tin hiển thị. User/room tự khai trong query không quyết định phạm vi đọc hoặc danh tính được loại trừ.
+
+Mốc N do frontend giữ riêng theo tài khoản/phòng trong trình duyệt; GET không ghi biên nhận đọc lên server. Đây là số nhắc người nhận, không phải trạng thái người gửi xem ai đã đọc. Không có migration schema cho endpoint này.
+
 ## Cuộc gọi mic và camera
 
 `GET /api/call/signals?after=N` trả `peers` (peerId, displayName, role, audio, video) của phòng hiện tại và `signals` dành riêng cho phiên đăng nhập. Cursor là số nguyên tăng dần; polling sau khi xử lý dùng ID cuối cùng để xác nhận gói đã nhận.

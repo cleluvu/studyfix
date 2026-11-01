@@ -3,7 +3,9 @@
 import { root } from "./dom.js";
 import { classroomClick, classroomInput, loadClassroom } from "../features/classroom/classroom.js";
 import { callClick, leaveCall } from "../features/classroom/call.js";
+import { markChatReadIfVisible } from "../features/classroom/chat-notifications.js";
 import { state } from "./state.js";
+import {practiceClick,practiceInput,savePracticeDraft} from "../features/exercises/practice.js";
 import { api, assignment, command } from "./api.js";
 import { toast, fail } from "../ui/toast.js";
 import { modal, clearModal } from "../ui/modal.js";
@@ -11,9 +13,11 @@ import { render } from "../ui/render.js";
 import { esc, dateTime } from "../shared/format.js";
 import { btn } from "../ui/components.js";
 import { login, logout, refreshMe } from "../features/auth/auth.js";
-import { startScreenShare, stopScreenShare } from "../features/screen-share/screen-share.js";
+import { startScreenShare, stopScreenShare, playScreenAudio } from "../features/screen-share/screen-share.js";
 import {
   commandCreateRoom,
+  leaveMeeting,
+  leaveRoomMembership,
   fetchDebugExercise,
   joinRoom,
   loadHistory,
@@ -36,6 +40,8 @@ import {
 import { openContest, openContestProblem, submitContestWork } from "../features/contests/contests.js";
 import {
   loadAssignments,
+  loadRooms,
+  handleDeletedRoom,
   loadCatalog,
   loadContests,
   loadCurrentRoom,
@@ -57,7 +63,15 @@ document.addEventListener("click", async (event) => {
   try {
     if (action.startsWith("call-")) { await callClick(action); return; }
     if (action.startsWith("classroom-")) { await classroomClick(action, d); return; }
+    if (action.startsWith("practice-")) { await practiceClick(action,d);return; }
     switch (action) {
+      case "chat-open":
+        state.meetingPanel="chat";
+        await navigate("room");
+        el.closest(".chat-toast")?.remove();
+        break;
+      case "chat-dismiss-toast": el.closest(".chat-toast")?.remove();break;
+      case "play-screen-audio": await playScreenAudio();break;
       case "navigate":
         await navigate(d.page);
         break;
@@ -81,11 +95,26 @@ document.addEventListener("click", async (event) => {
         toast("Đã đồng bộ trạng thái.", "success");
         break;
       case "create-room":
-        await commandCreateRoom();
+        document.getElementById("new-room-code")?.focus();
+        break;
+      case "rooms-page":
+        state.roomPage=Math.max(1,Math.min(state.roomsTotalPages||1,Number(d.page)||1));
+        await loadRooms();render();
         break;
       case "join-room":
         await joinRoom(d.roomId || "");
         break;
+      case "delete-room": {
+        const room=state.rooms.find(r=>String(r.roomId)===d.roomId);
+        if(!room||!room.isMine||state.identity.role!=="TEACHER")break;
+        const warning=room.memberCount>0?` Phòng đang có ${room.memberCount} người; tất cả sẽ rời phòng và cuộc gọi sẽ kết thúc.`:"";
+        if(!confirm(`Xóa phòng “${room.roomCode||room.roomId}”?${warning} Phòng sẽ bị gỡ khỏi danh sách.`))break;
+        await command("DELETE_ROOM",{roomId:room.roomId});
+        await handleDeletedRoom(room.roomId);
+        await refreshMe();await loadRooms();render();
+        toast("Đã xóa phòng.","success");
+        break;
+      }
       case "join-room-overview":
         await joinRoom(
           document.getElementById("overview-room-code")?.value || "",
@@ -99,18 +128,12 @@ document.addEventListener("click", async (event) => {
         render();
         toast("Đã đồng bộ code và trạng thái phòng.", "success");
         break;
+      case "leave-meeting":
+        await leaveMeeting();
+        break;
       case "leave-room":
-        if (confirm("Bạn có chắc muốn rời phòng hiện tại?")) {
-          await leaveCall();
-          if (state.screenActive) await stopScreenShare(true);
-          await command("LEAVE_ROOM");
-          state.room = null;
-          state.roomId = "";
-          await new Promise((r) => setTimeout(r, 200));
-          await refreshMe();
-          await loadPageData();
-          render();
-        }
+        if(d.roomId===String(state.room?.roomId)&&confirm("Bạn muốn rời phòng này? Bạn cần vào lại nếu muốn tham gia cuộc họp. Phòng vẫn được giữ trong danh sách."))
+          await leaveRoomMembership(d.roomId);
         break;
       case "room-tab":
         state.roomTab = d.tab;
@@ -229,8 +252,10 @@ document.addEventListener("click", async (event) => {
         await runSharedCheck(d.assignmentId);
         break;
       case "go-debug-assignment":
+      case "room-assignments":
+        savePracticeDraft();state.exerciseMode="room";
         state.page = "exercises";
-        state.catalogMode = "DEBUG_COLLAB";
+        state.catalogMode = action==="go-debug-assignment"?"DEBUG_COLLAB":"";
         state.chosenExercise = null;
         await loadPageData();
         render();
@@ -341,6 +366,8 @@ document.addEventListener("click", async (event) => {
         break;
       }
       case "open-assignment":
+        savePracticeDraft();state.exerciseMode="room";
+        state.page="exercises";
         await openAssignment(d.assignmentId);
         break;
       case "close-work":
@@ -439,6 +466,8 @@ document.addEventListener("click", async (event) => {
   }
 });
 document.addEventListener("studyfix:playback-blocked", () => render());
+document.addEventListener("visibilitychange", () => markChatReadIfVisible());
+window.addEventListener("focus", () => markChatReadIfVisible());
 
 root.addEventListener("submit", async (event) => {
   const form = event.target;
@@ -455,6 +484,13 @@ root.addEventListener("submit", async (event) => {
           error.textContent = e.message;
         } else fail(e);
       }
+    } else if (form.id === "room-search-form") {
+      clearTimeout(roomSearchTimer);state.roomSearch=String(new FormData(form).get("q")||"");
+      state.roomPage=1;await loadRooms();render();
+    } else if (form.id === "create-room-form") {
+      const submit=form.querySelector('button[type="submit"]');if(submit)submit.disabled=true;
+      try {await commandCreateRoom(new FormData(form).get("roomCode"));}
+      finally {if(submit)submit.disabled=false;}
     } else if (form.id === "join-room-form")
       await joinRoom(new FormData(form).get("roomId"));
     else if (form.id === "chat-form") {
@@ -494,6 +530,7 @@ root.addEventListener("submit", async (event) => {
           state.starterLoadNotice = { assignmentId: finalRow.id, message: r.starterLoadMessage, status: "pending" };
         } else state.starterLoadNotice = null;
         state.page = "room";
+        state.meetingClosed=false;
         state.roomTab = "code";
         await loadPageData();
         render();
@@ -524,8 +561,23 @@ root.addEventListener("submit", async (event) => {
   }
 });
 
+let roomSearchTimer;
+function queueRoomSearch(el) {
+  state.roomSearch=el.value;state.roomPage=1;
+  clearTimeout(roomSearchTimer);
+  roomSearchTimer=setTimeout(async()=>{
+    if(!state.token||state.page!=="overview")return;
+    await loadRooms();render();
+  },300);
+}
+root.addEventListener("compositionend",event=>{
+  if(event.target.id==="room-search"||(event.target.id==="global-search"&&state.page==="overview"))queueRoomSearch(event.target);
+});
 root.addEventListener("input", (event) => {
   const el = event.target;
+  if(el.id==="new-room-code")state.newRoomCode=el.value;
+  if(el.id==="overview-room-code")state.joinRoomCode=el.value;
+  if(!event.isComposing&&(el.id==="room-search"||(el.id==="global-search"&&state.page==="overview")))queueRoomSearch(el);
   classroomInput(el);
   if (el.id === "shared-code") {
     state.roomBuffer = el.value;
@@ -535,6 +587,7 @@ root.addEventListener("input", (event) => {
     state.workCode = el.value;
     state.workCodeDirty = true;
   }
+  if(state.exerciseMode!=="room")practiceInput(el);
   if (el.id === "contest-code") state.contestCode = el.value;
   if (el.id === "chat-draft") state.chatDraft = el.value;
   if (el.id === "catalog-query") state.catalogQuery = el.value;
@@ -548,22 +601,26 @@ root.addEventListener("input", (event) => {
   if (el.id === "line-replacement") state.lineReplacement = el.value;
 });
 root.addEventListener("scroll", event => {
+  if(event.target.id==="chat-list")markChatReadIfVisible();
   if(event.target.matches?.("#classroom-branch, #classroom-master")) {
     const gutter=event.target.previousElementSibling;if(gutter)gutter.scrollTop=event.target.scrollTop;
   }
 },true);
 root.addEventListener("keydown", event => {
+  if(event.key==="Enter"&&event.target.id==="practice-query"&&!event.isComposing){event.preventDefault();practiceClick("practice-filter",{}).catch(fail);}
   if(event.key==="Tab" && !event.ctrlKey && !event.metaKey && event.target.matches?.("#classroom-branch:not([readonly]), #classroom-master:not([readonly])")) {
     event.preventDefault();const el=event.target;el.setRangeText("    ",el.selectionStart,el.selectionEnd,"end");el.dispatchEvent(new Event("input",{bubbles:true}));
   }
 });
 window.addEventListener("pagehide", () => {
+  if(state.token&&state.room)fetch("/api/auth/departing",{method:"POST",headers:{Authorization:`Bearer ${state.token}`,"Content-Type":"application/json"},body:"{}",keepalive:true}).catch(()=>{});
   if(state.callJoined&&state.token)fetch("/api/call/signal",{method:"POST",headers:{Authorization:`Bearer ${state.token}`,"Content-Type":"application/json"},body:JSON.stringify({kind:"LEAVE"}),keepalive:true}).catch(()=>{});
   leaveCall(false);stopScreenShare(false);
 });
 
 root.addEventListener("change", async (event) => {
   const el = event.target;
+  if(el.id.startsWith("practice-")) {practiceInput(el);try{await practiceClick("practice-filter",{});}catch(e){fail(e);}return;}
   if(el.id==="classroom-history-round"){state.meetingHistoryRound=Number(el.value);return;}
   if (el.id === "classroom-auto-check") { state.classroomAutoCheck = el.checked; return; }
   if (el.id === "work-code-file") {
@@ -579,6 +636,7 @@ root.addEventListener("change", async (event) => {
       if (state.workCodeDirty && !confirm("Nạp file sẽ thay code bạn đang chỉnh sửa trong editor. Bạn có muốn tiếp tục?")) return;
       state.workCode = content;
       state.workCodeDirty = true;
+      savePracticeDraft();
       render();
       toast(`Đã nạp ${name} vào editor. Chưa nộp bài.`, "success");
     } catch (e) { fail(e); }

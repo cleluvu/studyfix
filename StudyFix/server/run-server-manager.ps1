@@ -9,8 +9,9 @@ Write-Host "Project server: $project"
 Write-Host "Java: $java"
 Write-Host "Ant: $ant"
 Write-Host 'Dang build server + giao dien Server Manager...'
-& $ant clean jar
-if ($LASTEXITCODE -ne 0) { throw "ant clean jar that bai ($LASTEXITCODE)" }
+# Keep launcher compilation separate from test databases/output under build/.
+& $ant '-Dbuild.dir=build-launcher' jar
+if ($LASTEXITCODE -ne 0) { throw "ant jar that bai ($LASTEXITCODE)" }
 
 $sqlite = Join-Path $project 'lib\sqlite-jdbc-3.53.0.0.jar'
 $appJar = Join-Path $project 'dist\studyfix.jar'

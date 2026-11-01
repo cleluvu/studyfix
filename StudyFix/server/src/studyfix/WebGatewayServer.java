@@ -1,0 +1,699 @@
+package studyfix;
+
+import com.sun.net.httpserver.Headers;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
+import studyfix.assignment.protocol.AssignmentJson;
+import studyfix.assignment.transport.AssignmentTcpServer;
+import studyfix.assignment.grading.GradingSandbox;
+import studyfix.assignment.grading.DockerJavaSandbox;
+
+import java.io.*;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.security.KeyStore;
+import java.security.GeneralSecurityException;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Same-process HTTP adapter for the browser client. Authentication is bridged through the existing
+ * TCP control server, so the existing Store/Identity/Room permissions remain the source of truth.
+ * The browser never supplies an internal core session id to the assignment domain.
+ */
+public final class WebGatewayServer implements AutoCloseable {
+    private static final int MAX_BODY_BYTES = 128 * 1024;
+    private static final long SESSION_TTL_MILLIS = TimeUnit.HOURS.toMillis(12);
+    private static final Set<String> ASSIGNMENT_TYPES = Set.of(
+            "PING", "CATALOG_LIST", "CATALOG_GET", "ROOM_STUDENTS_LIST", "CLASS_PROGRESS",
+            "ASSIGN_CREATE", "ASSIGN_LIST", "ASSIGN_GET", "DEBUG_STARTER_PREPARE", "DEBUG_STARTER_LOAD",
+            "SHARED_CODE_STATE", "SHARED_CHECK_CREATE", "SHARED_CHECK_LATEST", "SHARED_CHECK_STATUS",
+            "SHARED_CHECK_RESULT", "SUBMIT_CREATE", "SUBMISSION_LIST", "SUBMISSION_RESULT",
+            "CONTEST_CREATE", "CONTEST_LIST", "CONTEST_PROBLEMS_GET", "CONTEST_SUBMIT",
+            "CONTEST_SUBMISSION_RESULT", "CONTEST_SUBMISSION_LIST", "LEADERBOARD_GET",
+            "TEACHER_TRIAL_CREATE", "TEACHER_TRIAL_LIST", "TEACHER_TRIAL_RESULT");
+    private static final Pattern LOGIN_OK = Pattern.compile("\\[LOGIN_OK] session=([^ ]+) userId=([^ ]+) role=(TEACHER|STUDENT) \\| (.*)");
+
+    private final Server core;
+    private final AssignmentTcpServer assignments;
+    private final ClassroomService classroom;
+    private final MeetingCalls calls = new MeetingCalls();
+    private final HttpServer http;
+    private final ExecutorService executor;
+    private final ScheduledExecutorService scheduler;
+    private final Map<String, WebSession> sessions = new ConcurrentHashMap<>();
+    private final Map<String, WebSession> sessionsByCoreId = new ConcurrentHashMap<>();
+    private final Map<String, WebSession> sessionsByPeerId = new ConcurrentHashMap<>();
+    /** One active browser-based screen publisher per room; viewer signaling is bidirectional. */
+    private final Map<String, String> activeScreenSharersByRoom = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Long>> loginAttempts = new ConcurrentHashMap<>();
+    private final Path staticRoot;
+    private volatile boolean closed;
+    private volatile boolean started;
+
+    public WebGatewayServer(Server core, AssignmentTcpServer assignments) throws IOException {
+        this(core, assignments, new DockerJavaSandbox(System.getProperty("studyfix.assignment.docker.image", "eclipse-temurin:21-jdk"), 2, 45));
+    }
+    WebGatewayServer(Server core, AssignmentTcpServer assignments, GradingSandbox sandbox) throws IOException {
+        this.core = Objects.requireNonNull(core);
+        this.assignments = Objects.requireNonNull(assignments);
+        String bindHost = System.getProperty("studyfix.web.host", envOrDefault("STUDYFIX_WEB_HOST", "0.0.0.0"));
+        int port = Integer.getInteger("studyfix.web.port", envPort("STUDYFIX_WEB_PORT", 8080));
+        this.http = createHttpServer(bindHost, port);
+        this.executor = new ThreadPoolExecutor(4, 32, 30, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(256), r -> { Thread t = new Thread(r, "studyfix-web-http"); t.setDaemon(true); return t; },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "studyfix-web-cleanup"); t.setDaemon(true); return t; });
+        this.http.setExecutor(executor);
+        this.http.createContext("/", this::handle);
+        Path dist = Path.of(System.getProperty("studyfix.web.dist", "../web-client/dist")).toAbsolutePath().normalize();
+        Path fallback = Path.of(System.getProperty("studyfix.web.root", "../web-client/static")).toAbsolutePath().normalize();
+        this.staticRoot = Files.isRegularFile(dist.resolve("index.html")) ? dist : fallback;
+        classroom = new ClassroomService(core, assignments::classroomExercise, sandbox);
+        scheduler.scheduleWithFixedDelay(this::cleanup, 1, 1, TimeUnit.MINUTES);
+    }
+
+    private static String envOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null ? fallback : value;
+    }
+
+    private static int envPort(String name, int fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) return fallback;
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0 || parsed > 65535) throw new NumberFormatException("outside TCP port range");
+            return parsed;
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Biến môi trường " + name + " phải là cổng từ 0 đến 65535.", e);
+        }
+    }
+
+    private static HttpServer createHttpServer(String bindHost, int port) throws IOException {
+        String keyStorePath = System.getProperty("studyfix.web.keystore", envOrDefault("STUDYFIX_WEB_KEYSTORE", "")).trim();
+        if (keyStorePath.isBlank()) return HttpServer.create(new InetSocketAddress(bindHost, port), 64);
+        String password = System.getProperty("studyfix.web.keystore.password", envOrDefault("STUDYFIX_WEB_KEYSTORE_PASSWORD", ""));
+        if (password.isEmpty()) throw new IOException("Đã cấu hình studyfix.web.keystore nhưng thiếu studyfix.web.keystore.password.");
+        String type = System.getProperty("studyfix.web.keystore.type", "PKCS12");
+        try (InputStream in = Files.newInputStream(Path.of(keyStorePath))) {
+            KeyStore store = KeyStore.getInstance(type);
+            store.load(in, password.toCharArray());
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(store, password.toCharArray());
+            SSLContext ssl = SSLContext.getInstance("TLS");
+            ssl.init(kmf.getKeyManagers(), null, null);
+            HttpsServer secure = HttpsServer.create(new InetSocketAddress(bindHost, port), 64);
+            secure.setHttpsConfigurator(new HttpsConfigurator(ssl));
+            return secure;
+        } catch (GeneralSecurityException | RuntimeException e) {
+            throw new IOException("Không khởi tạo được HTTPS gateway. Kiểm tra keystore, loại keystore và mật khẩu.", e);
+        }
+    }
+
+    public synchronized void start() {
+        if (closed) throw new IllegalStateException("Web gateway đã đóng.");
+        if (started) return;
+        http.start();
+        started = true;
+        System.out.println("StudyFix Web Gateway chạy tại " + scheme() + "://" + http.getAddress().getHostString() + ":" + http.getAddress().getPort());
+        System.out.println("FE source/fallback: " + staticRoot);
+    }
+    public int port() { return http.getAddress().getPort(); }
+    public String scheme() { return http instanceof com.sun.net.httpserver.HttpsServer ? "https" : "http"; }
+    public boolean isRunning() { return started && !closed; }
+
+    private void handle(HttpExchange ex) throws IOException {
+        try {
+            securityHeaders(ex.getResponseHeaders());
+            String path = ex.getRequestURI().getPath();
+            if (path.startsWith("/api/")) {
+                if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { corsPreflight(ex); return; }
+                handleApi(ex, path);
+            } else {
+                if (!"GET".equalsIgnoreCase(ex.getRequestMethod()) && !"HEAD".equalsIgnoreCase(ex.getRequestMethod())) {
+                    json(ex, 405, Map.of("ok", false, "message", "Phương thức không được hỗ trợ.")); return;
+                }
+                serveStatic(ex, path);
+            }
+        } catch (ApiException e) {
+            json(ex, e.status, Map.of("ok", false, "error", e.code, "message", e.getMessage()));
+        } catch (SecurityException e) {
+            json(ex, 403, Map.of("ok", false, "error", "FORBIDDEN", "message", safeMessage(e)));
+        } catch (IllegalArgumentException e) {
+            json(ex, 400, Map.of("ok", false, "error", "INVALID_REQUEST", "message", safeMessage(e)));
+        } catch (IllegalStateException e) {
+            json(ex, 409, Map.of("ok", false, "error", "STATE_CONFLICT", "message", safeMessage(e)));
+        } catch (Exception e) {
+            System.err.println("Web gateway error: " + e.getClass().getSimpleName() + ": " + safeMessage(e));
+            json(ex, 500, Map.of("ok", false, "error", "INTERNAL_ERROR", "message", "Không thể hoàn tất yêu cầu. Kiểm tra nhật ký server."));
+        } finally {
+            ex.close();
+        }
+    }
+
+    private void handleApi(HttpExchange ex, String path) throws Exception {
+        String method = ex.getRequestMethod().toUpperCase(Locale.ROOT);
+        if (path.equals("/api/health") && method.equals("GET")) {
+            json(ex, 200, map("ok", true, "service", "StudyFix Web Gateway", "scheme", scheme(), "webPort", port(),
+                    "controlPort", core.port(), "assignmentPort", assignments.port(), "time", System.currentTimeMillis())); return;
+        }
+        if (path.equals("/api/auth/login") && method.equals("POST")) { login(ex); return; }
+        if (path.equals("/api/auth/logout") && method.equals("POST")) { WebSession s = requireSession(ex); closeSession(s); json(ex, 200, Map.of("ok", true)); return; }
+
+        WebSession s = requireSession(ex);
+        s.lastSeen = System.currentTimeMillis();
+        if (path.equals("/api/me") && method.equals("GET")) {
+            String roomId = currentRoomId(s);
+            json(ex, 200, map("ok", true, "identity", identityMap(s.identity), "peerId", s.peerId, "roomId", roomId)); return;
+        }
+        if (path.equals("/api/rooms") && method.equals("GET")) { rooms(ex, s); return; }
+        if (path.equals("/api/rooms/current") && method.equals("GET")) { currentRoom(ex, s); return; }
+        if (path.equals("/api/rooms/current/history") && method.equals("GET")) { roomHistory(ex, s); return; }
+        if (path.equals("/api/rooms/current/command") && method.equals("POST")) { roomCommand(ex, s); return; }
+        if (path.equals("/api/classroom") && (method.equals("GET") || method.equals("POST"))) {
+            Room room = requireCurrentRoom(s);
+            ClientHandler client = core.clients.get(s.coreSessionId);
+            Map<String,Object> view = method.equals("GET") ? classroom.view(room, client) : classroom.action(room, client, readBody(ex));
+            json(ex, 200, map("ok", true, "classroom", view)); return;
+        }
+        if (path.startsWith("/api/classroom/checks/") && method.equals("GET")) {
+            json(ex, 200, map("ok", true, "check", classroom.checkDetail(requireCurrentRoom(s), core.clients.get(s.coreSessionId), path.substring("/api/classroom/checks/".length())))); return;
+        }
+        if (path.startsWith("/api/classroom/branches/") && method.equals("GET")) {
+            json(ex, 200, map("ok", true, "branch", classroom.branchDetail(requireCurrentRoom(s), core.clients.get(s.coreSessionId), path.substring("/api/classroom/branches/".length()), Math.toIntExact(queryLong(ex.getRequestURI(), "round", 0))))); return;
+        }
+        if (path.startsWith("/api/classroom/rounds/") && method.equals("GET")) {
+            int round = Integer.parseInt(path.substring("/api/classroom/rounds/".length()));
+            json(ex, 200, map("ok", true, "report", classroom.roundReport(requireCurrentRoom(s), core.clients.get(s.coreSessionId), round))); return;
+        }
+        if (path.equals("/api/events") && method.equals("GET")) { events(ex, s); return; }
+        if (path.equals("/api/assignments") && method.equals("POST")) { assignmentRequest(ex, s); return; }
+        if (path.equals("/api/screen/signal") && method.equals("POST")) { screenSignal(ex, s); return; }
+        if (path.equals("/api/screen/signals") && method.equals("GET")) { pollScreenSignals(ex, s); return; }
+        if (path.equals("/api/call/signals") && method.equals("GET")) {
+            Room room=requireCurrentRoom(s);pruneCalls();
+            json(ex,200,calls.poll(s.peerId,room.getRoomId(),queryLong(ex.getRequestURI(),"after",0)));return;
+        }
+        if (path.equals("/api/call/signal") && method.equals("POST")) { callSignal(ex,s);return; }
+        throw new ApiException(404, "NOT_FOUND", "Không tìm thấy API.");
+    }
+
+    private void login(HttpExchange ex) throws Exception {
+        String ip = ex.getRemoteAddress().getAddress().getHostAddress();
+        if (!allowLoginAttempt(ip)) throw new ApiException(429, "RATE_LIMITED", "Đăng nhập quá nhiều lần. Vui lòng thử lại sau một phút.");
+        Map<String,Object> body = readBody(ex);
+        String username = text(body, "username", "").trim();
+        String password = text(body, "password", "");
+        if (username.isBlank() || password.isBlank() || username.length() > 64 || password.length() > 256)
+            throw new ApiException(400, "INVALID_REQUEST", "Vui lòng nhập tên đăng nhập và mật khẩu hợp lệ.");
+        WebSession session = WebSession.login(core.port(), username, password);
+        sessions.put(session.token, session);
+        sessionsByCoreId.put(session.coreSessionId, session);
+        sessionsByPeerId.put(session.peerId, session);
+        session.heartbeat = scheduler.scheduleAtFixedRate(() -> {
+            if (!session.closed) try { session.send("/ping"); } catch (IOException ignored) { }
+        }, 8, 8, TimeUnit.SECONDS);
+        json(ex, 200, map("ok", true, "token", session.token, "peerId", session.peerId,
+                "identity", identityMap(session.identity), "roomId", currentRoomId(session)));
+    }
+
+    private synchronized boolean allowLoginAttempt(String ip) {
+        long now = System.currentTimeMillis();
+        Deque<Long> attempts = loginAttempts.computeIfAbsent(ip, k -> new ArrayDeque<>());
+        while (!attempts.isEmpty() && now - attempts.peekFirst() > 60_000) attempts.removeFirst();
+        if (attempts.size() >= 10) return false;
+        attempts.addLast(now);
+        return true;
+    }
+
+    private WebSession requireSession(HttpExchange ex) {
+        String auth = ex.getRequestHeaders().getFirst("Authorization");
+        if (auth == null || !auth.startsWith("Bearer ")) throw new ApiException(401, "UNAUTHENTICATED", "Phiên đăng nhập không tồn tại. Vui lòng đăng nhập lại.");
+        WebSession s = sessions.get(auth.substring(7).trim());
+        if (s == null || s.closed || !s.socket.isConnected() || s.socket.isClosed()) throw new ApiException(401, "UNAUTHENTICATED", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        return s;
+    }
+
+    private void rooms(HttpExchange ex, WebSession s) throws IOException {
+        List<Map<String,Object>> result = new ArrayList<>();
+        if (s.identity.role() == Identity.Role.TEACHER) {
+            for (Room room : core.rooms.values()) {
+                Room.Snapshot snap = room.snapshot();
+                result.add(map("roomId", snap.roomId(), "ownerId", snap.ownerId(), "version", snap.version(),
+                        "memberCount", snap.members().size(), "online", true, "isMine", snap.ownerId().equals(s.identity.userId())));
+            }
+            result.sort(Comparator.comparing(r -> String.valueOf(r.get("roomId"))));
+        }
+        json(ex, 200, map("ok", true, "rooms", result, "role", s.identity.role().name()));
+    }
+
+    private String currentRoomId(WebSession session) {
+        ClientHandler handler = core.clients.get(session.coreSessionId);
+        if (handler == null || !handler.isConnected()) throw new ApiException(401, "SESSION_CLOSED", "Phiên TCP đã đóng. Vui lòng đăng nhập lại.");
+        String roomId = handler.getCurrentRoomId();
+        return roomId == null ? "" : roomId;
+    }
+
+    private Room requireCurrentRoom(WebSession s) {
+        String id = currentRoomId(s);
+        if (id.isBlank()) throw new ApiException(409, "NO_ROOM", "Bạn chưa vào phòng học. Hãy tạo phòng hoặc nhập mã phòng để tham gia.");
+        Room room = core.rooms.get(id);
+        if (room == null || !room.isMember(s.coreSessionId)) throw new ApiException(409, "ROOM_NOT_ACTIVE", "Phòng hiện tại không còn khả dụng.");
+        return room;
+    }
+
+    private void currentRoom(HttpExchange ex, WebSession s) throws IOException {
+        Room room = requireCurrentRoom(s);
+        Room.Snapshot snap = room.snapshot();
+        List<Map<String,Object>> members = new ArrayList<>();
+        for (Room.MemberView member : room.memberDetails()) {
+            WebSession webMember = sessionsByCoreId.get(member.sessionId());
+            members.add(map("peerId", webMember == null ? "" : webMember.peerId,
+                    "username", member.username(), "displayName", member.displayName(), "role", member.role(),
+                    "online", member.online(), "isEditor", member.editor(), "inQueue", member.queued(),
+                    "isTeacherOwner", member.userId().equals(snap.ownerId())));
+        }
+        members.sort(Comparator.comparing(m -> !Boolean.TRUE.equals(m.get("isTeacherOwner"))));
+        Room.RecoverableDraft recovery = room.recoverableDraftFor(s.coreSessionId);
+        Map<String,Object> recoveryView = recovery == null ? Map.of() : map("sourceCode", recovery.sourceCode(), "baseVersion", recovery.baseVersion(), "savedAt", recovery.savedAt());
+        List<Map<String,Object>> historySummary = new ArrayList<>();
+        for (CodeRevision revision : snap.history()) historySummary.add(map("version", revision.getVersion(),
+                "editorName", revision.getEditorName(), "createdAt", revision.getCreatedAt().toString(), "changes", revision.getChanges()));
+        String editorPeerId = "";
+        WebSession editor = snap.editor() == null ? null : sessionsByCoreId.get(snap.editor());
+        if (editor != null) editorPeerId = editor.peerId;
+        json(ex, 200, map("ok", true, "room", map("roomId", snap.roomId(), "ownerId", snap.ownerId(),
+                "code", snap.code(), "version", snap.version(), "editorPeerId", editorPeerId,
+                "token", Objects.equals(snap.editor(), s.coreSessionId) ? snap.token() : 0L,
+                "recoverableDraft", recoveryView,
+                "draftActive", room.hasActiveDraft(), "editTurnActive", room.hasActiveEditTurn(),
+                "queue", snap.queue().stream().map(id -> { WebSession ws = sessionsByCoreId.get(id); return ws == null ? "(client Swing)" : ws.peerId; }).toList(),
+                "members", members, "history", historySummary)));
+    }
+
+    private void roomHistory(HttpExchange ex, WebSession s) throws IOException {
+        Room room = requireCurrentRoom(s);
+        List<Map<String,Object>> history = new ArrayList<>();
+        for (CodeRevision r : room.snapshot().history()) history.add(map("version", r.getVersion(), "editorId", r.getEditorId(),
+                "editorName", r.getEditorName(), "createdAt", r.getCreatedAt().toString(), "code", r.getSourceCode(),
+                "previousVersion", r.getPreviousVersion(), "changes", r.getChanges()));
+        json(ex, 200, map("ok", true, "history", history));
+    }
+
+    private void roomCommand(HttpExchange ex, WebSession s) throws IOException {
+        Map<String,Object> body = readBody(ex);
+        String action = text(body, "action", "").toUpperCase(Locale.ROOT);
+        if (action.equals("ACK_DRAFT_RECOVERY")) {
+            Room current = requireCurrentRoom(s);
+            current.acknowledgeRecoverableDraft(s.coreSessionId);
+            json(ex, 200, map("ok", true, "acknowledged", true));
+            return;
+        }
+        String command;
+        switch (action) {
+            case "CREATE_ROOM" -> {
+                if (s.identity.role() != Identity.Role.TEACHER) throw new ApiException(403, "FORBIDDEN", "Chỉ giáo viên được tạo phòng.");
+                if (!currentRoomId(s).isBlank()) throw new ApiException(409, "ALREADY_IN_ROOM", "Bạn đang ở trong một phòng.");
+                command = "/create";
+            }
+            case "JOIN_ROOM" -> {
+                if (!currentRoomId(s).isBlank()) throw new ApiException(409, "ALREADY_IN_ROOM", "Hãy rời phòng hiện tại trước khi tham gia phòng khác.");
+                String roomId = text(body, "roomId", "").trim();
+                if (roomId.isBlank() || roomId.length() > 80 || roomId.contains(" ")) throw new ApiException(400, "INVALID_ROOM", "Mã phòng không hợp lệ.");
+                command = "/join " + roomId;
+            }
+            case "LEAVE_ROOM" -> {
+                calls.leave(s.peerId);
+                String activeRoom = currentRoomId(s);
+                if (!activeRoom.isBlank()) endScreenShare(activeRoom, s.peerId, "Người chia sẻ đã rời phòng.");
+                command = "/leave";
+            }
+            case "CHAT" -> {
+                String message = text(body, "text", "").trim();
+                if (message.isBlank() || message.length() > 2000 || message.contains("\u0000")) throw new ApiException(400, "INVALID_CHAT", "Tin nhắn phải có từ 1 đến 2000 ký tự.");
+                command = "/chat " + message;
+            }
+            case "REFRESH_CODE" -> command = "/code";
+            case "SHOW_HISTORY" -> command = "/history";
+            case "REQUEST_EDIT" -> command = "/request";
+            case "TEACHER_REQUEST_EDIT" -> {
+                if (s.identity.role() != Identity.Role.TEACHER) throw new ApiException(403, "FORBIDDEN", "Chỉ giáo viên được ưu tiên quyền sửa.");
+                command = "/teacher-request";
+            }
+            case "RELEASE_EDIT" -> command = "/release " + positiveLong(body, "token");
+            case "UPDATE_CODE" -> {
+                long version = nonNegativeLong(body, "version"); long token = positiveLong(body, "token"); String code = text(body, "code", "");
+                if (code.getBytes(StandardCharsets.UTF_8).length > 32_000) throw new ApiException(413, "CODE_TOO_LARGE", "Code vượt giới hạn 32 KB.");
+                command = "/update " + version + " " + token + " " + code;
+            }
+            case "FINISH_DRAFT" -> command = "/finish " + positiveLong(body, "token");
+            case "CANCEL_DRAFT" -> command = "/cancel " + positiveLong(body, "token");
+            case "SHOW_DRAFT" -> command = "/draft " + positiveLong(body, "token");
+            case "SELECT_LINES" -> {
+                long version = nonNegativeLong(body, "version"); long token = positiveLong(body, "token");
+                String selection = text(body, "selection", "").trim();
+                if (!selection.matches("[0-9,\\- ]{1,200}")) throw new ApiException(400, "INVALID_SELECTION", "Vùng chọn dòng không hợp lệ.");
+                command = "/select " + version + " " + token + " " + selection;
+            }
+            case "SET_LINE" -> command = "/setline " + positiveLong(body, "token") + " " + positiveLong(body, "line") + " " + text(body, "text", "");
+            case "DELETE_LINE" -> command = "/delete " + positiveLong(body, "token") + " " + positiveLong(body, "line");
+            case "KEEP_LINE" -> command = "/keep " + positiveLong(body, "token") + " " + positiveLong(body, "line");
+            case "SET_RANGE" -> command = "/setrange " + positiveLong(body, "token") + " " + text(body, "text", "");
+            case "DELETE_RANGE" -> command = "/deleterange " + positiveLong(body, "token");
+            case "KEEP_RANGE" -> command = "/keeprange " + positiveLong(body, "token");
+            default -> throw new ApiException(400, "UNKNOWN_ACTION", "Thao tác phòng học không hợp lệ.");
+        }
+        // Core socket protocol remains authoritative for room membership, ownership and edit token checks.
+        s.send(command);
+        json(ex, 202, map("ok", true, "sent", true, "action", action, "message", "Đã gửi yêu cầu tới StudyFix Server."));
+    }
+
+    private void events(HttpExchange ex, WebSession s) throws IOException {
+        long after = queryLong(ex.getRequestURI(), "after", 0);
+        List<Map<String,Object>> result = s.eventsAfter(after, 100);
+        long next = result.isEmpty() ? after : ((Number) result.get(result.size() - 1).get("id")).longValue();
+        json(ex, 200, map("ok", true, "events", result, "next", next, "connected", s.socket.isConnected() && !s.socket.isClosed()));
+    }
+
+    private void assignmentRequest(HttpExchange ex, WebSession s) throws IOException {
+        Room room = requireCurrentRoom(s);
+        Map<String,Object> body = readBody(ex);
+        String type = text(body, "type", "").toUpperCase(Locale.ROOT);
+        if (!ASSIGNMENT_TYPES.contains(type)) throw new ApiException(400, "UNKNOWN_ASSIGNMENT_ACTION", "Nghiệp vụ bài tập không hợp lệ.");
+        Map<String,Object> request = new LinkedHashMap<>(body);
+        request.keySet().removeAll(Set.of("sessionId", "roomId", "requestId"));
+        request.put("type", type); request.put("sessionId", s.coreSessionId); request.put("roomId", room.getRoomId());
+        request.put("requestId", UUID.randomUUID().toString());
+        Map<String,Object> response = assignments.handleWebRequest(request);
+        int status = "OK".equalsIgnoreCase(text(response, "status", "")) ? 200 : 400;
+        json(ex, status, response);
+    }
+
+    private void screenSignal(HttpExchange ex, WebSession s) throws IOException {
+        Room room = requireCurrentRoom(s);
+        String roomId = room.getRoomId();
+        Map<String,Object> body = readBody(ex);
+        String kind = text(body, "kind", "").toUpperCase(Locale.ROOT);
+        String targetPeerId = text(body, "toPeerId", "").trim();
+        String payload = text(body, "payload", "");
+        if (!Set.of("START", "REQUEST", "OFFER", "ANSWER", "ICE", "END").contains(kind))
+            throw new ApiException(400, "INVALID_SIGNAL", "Loại tín hiệu chia sẻ màn hình không hợp lệ.");
+        if (kind.length() + payload.length() > 100_000 || payload.length() > 96_000)
+            throw new ApiException(413, "SIGNAL_TOO_LARGE", "Tín hiệu WebRTC vượt giới hạn.");
+
+        if (kind.equals("START")) {
+            registerScreenShare(roomId, s, payload);
+            json(ex, 202, map("ok", true, "activePresenterPeerId", s.peerId));
+            return;
+        }
+        if (kind.equals("END")) {
+            if (!endScreenShare(roomId, s.peerId, ""))
+                throw new ApiException(409, "NOT_ACTIVE_SCREEN_PRESENTER", "Phiên này không phải người đang chia sẻ màn hình.");
+            json(ex, 202, map("ok", true, "stopped", true));
+            return;
+        }
+        if (kind.equals("REQUEST")) {
+            String presenter = activePresenterForRoom(roomId);
+            if (presenter.isBlank()) throw new ApiException(409, "NO_ACTIVE_SCREEN_SHARE", "Hiện chưa có ai chia sẻ màn hình trong phòng.");
+            if (presenter.equals(s.peerId)) {
+                json(ex, 200, map("ok", true, "self", true));
+                return;
+            }
+            WebSession target = sessionsByPeerId.get(presenter);
+            if (!sessionIsInRoom(target, roomId)) {
+                activeScreenSharersByRoom.remove(roomId, presenter);
+                throw new ApiException(409, "NO_ACTIVE_SCREEN_SHARE", "Người chia sẻ đã rời phòng.");
+            }
+            target.addScreenSignal(roomId, "REQUEST", s.peerId, s.identity.displayName());
+            json(ex, 202, map("ok", true, "sent", true, "activePresenterPeerId", presenter));
+            return;
+        }
+
+        if (targetPeerId.isBlank())
+            throw new ApiException(400, "MISSING_PEER", "Thiếu người nhận tín hiệu.");
+        WebSession target = sessionsByPeerId.get(targetPeerId);
+        if (!sessionIsInRoom(target, roomId))
+            throw new ApiException(404, "PEER_NOT_AVAILABLE", "Thiết bị nhận không còn trong phòng hoặc chưa mở phiên web.");
+
+        String active = activePresenterForRoom(roomId);
+        if (kind.equals("OFFER")) {
+            // Backward compatibility for clients that created an offer before sending START.
+            if (active.isBlank()) {
+                registerScreenShare(roomId, s, s.identity.displayName());
+                active = s.peerId;
+            }
+            if (!active.equals(s.peerId))
+                throw new ApiException(403, "NOT_SCREEN_PRESENTER", "Chỉ người đang chia sẻ màn hình mới được gửi OFFER.");
+            if (targetPeerId.equals(active))
+                throw new ApiException(400, "INVALID_SCREEN_TARGET", "Không thể gửi OFFER cho chính người chia sẻ.");
+        } else if (kind.equals("ANSWER")) {
+            if (active.isBlank() || !targetPeerId.equals(active) || s.peerId.equals(active))
+                throw new ApiException(403, "INVALID_SCREEN_ANSWER", "ANSWER phải được gửi từ người xem tới người đang chia sẻ trong cùng phòng.");
+        } else if (kind.equals("ICE")) {
+            if (active.isBlank() || (!s.peerId.equals(active) && !targetPeerId.equals(active)))
+                throw new ApiException(403, "INVALID_SCREEN_ICE", "ICE không thuộc phiên chia sẻ màn hình đang hoạt động.");
+        }
+        target.addScreenSignal(roomId, kind, s.peerId, payload);
+        json(ex, 202, map("ok", true, "sent", true));
+    }
+
+    private synchronized void registerScreenShare(String roomId, WebSession publisher, String displayName) {
+        String current = activePresenterForRoom(roomId);
+        if (!current.isBlank() && !current.equals(publisher.peerId))
+            throw new ApiException(409, "SCREEN_SHARE_ACTIVE", "Đang có thành viên khác chia sẻ màn hình. Hãy đợi họ dừng chia sẻ trước.");
+        // Treat duplicate START from the same browser session as idempotent; do not fan out
+        // duplicate START events that cause peers to create repeated WebRTC offers.
+        if (publisher.peerId.equals(current)) return;
+        activeScreenSharersByRoom.put(roomId, publisher.peerId);
+        broadcastScreenSignal(roomId, "START", publisher.peerId,
+                displayName == null || displayName.isBlank() ? publisher.identity.displayName() : displayName,
+                publisher.peerId);
+    }
+
+    private boolean endScreenShare(String roomId, String peerId, String payload) {
+        if (roomId == null || roomId.isBlank() || peerId == null || peerId.isBlank()) return false;
+        boolean removed = activeScreenSharersByRoom.remove(roomId, peerId);
+        if (removed) broadcastScreenSignal(roomId, "END", peerId, payload == null ? "" : payload, peerId);
+        return removed;
+    }
+
+    private String activePresenterForRoom(String roomId) {
+        String peerId = activeScreenSharersByRoom.getOrDefault(roomId, "");
+        if (peerId.isBlank()) return "";
+        WebSession publisher = sessionsByPeerId.get(peerId);
+        if (!sessionIsInRoom(publisher, roomId)) {
+            if (activeScreenSharersByRoom.remove(roomId, peerId))
+                broadcastScreenSignal(roomId, "END", peerId, "Người chia sẻ đã mất kết nối.", peerId);
+            return "";
+        }
+        return peerId;
+    }
+
+    private boolean sessionIsInRoom(WebSession session, String roomId) {
+        if (session == null || session.closed || !sessions.containsKey(session.token)) return false;
+        try { return Objects.equals(currentRoomId(session), roomId); }
+        catch (RuntimeException e) { return false; }
+    }
+
+    private void broadcastScreenSignal(String roomId, String kind, String fromPeerId, String payload, String excludePeerId) {
+        for (WebSession recipient : sessions.values()) {
+            if (recipient.closed || recipient.peerId.equals(excludePeerId)) continue;
+            if (sessionIsInRoom(recipient, roomId)) recipient.addScreenSignal(roomId, kind, fromPeerId, payload);
+        }
+    }
+
+    private void pollScreenSignals(HttpExchange ex, WebSession s) throws IOException {
+        Room room = requireCurrentRoom(s);
+        String roomId = room.getRoomId();
+        long after = queryLong(ex.getRequestURI(), "after", 0);
+        String presenterPeerId = activePresenterForRoom(roomId);
+        WebSession presenter = presenterPeerId.isBlank() ? null : sessionsByPeerId.get(presenterPeerId);
+        json(ex, 200, map("ok", true, "signals", s.screenSignalsAfter(after, roomId),
+                "activePresenterPeerId", presenterPeerId,
+                "activePresenterName", presenter == null ? "" : presenter.identity.displayName()));
+    }
+
+    private void pruneCalls() {
+        calls.prune((peer,room)->sessionIsInRoom(sessionsByPeerId.get(peer),room));
+    }
+    private void callSignal(HttpExchange ex,WebSession s) throws IOException {
+        String room=requireCurrentRoom(s).getRoomId();Map<String,Object> body=readBody(ex);
+        String kind=text(body,"kind","").toUpperCase(Locale.ROOT);pruneCalls();
+        boolean audio=Boolean.TRUE.equals(body.get("audio")),video=Boolean.TRUE.equals(body.get("video"));
+        switch(kind) {
+            case "JOIN" -> calls.join(s.peerId,room,s.identity,audio,video);
+            case "STATE" -> calls.state(s.peerId,room,audio,video);
+            case "LEAVE" -> calls.leave(s.peerId);
+            case "OFFER","ANSWER","ICE" -> {
+                String to=text(body,"toPeerId","");
+                if(!sessionIsInRoom(sessionsByPeerId.get(to),room))throw new SecurityException("Người nhận không ở trong phòng hiện tại.");
+                calls.signal(s.peerId,room,to,kind,text(body,"payload",""));
+            }
+            default -> throw new IllegalArgumentException("Loại tín hiệu cuộc gọi không hợp lệ.");
+        }
+        json(ex,200,map("ok",true));
+    }
+    private void serveStatic(HttpExchange ex, String urlPath) throws IOException {
+        if (!Files.isRegularFile(staticRoot.resolve("index.html"))) {
+            json(ex, 503, map("ok", false, "error", "WEB_CLIENT_MISSING", "message", "Chưa có web-client/static/index.html. Xem thư mục web-client trong source.")); return;
+        }
+        String decoded;
+        try { decoded = URLDecoder.decode(urlPath, StandardCharsets.UTF_8); }
+        catch (IllegalArgumentException e) { json(ex, 400, Map.of("ok", false, "message", "Đường dẫn không hợp lệ.")); return; }
+        if (decoded.equals("/")) decoded = "/index.html";
+        Path file = staticRoot.resolve(decoded.substring(1)).normalize();
+        if (!file.startsWith(staticRoot) || !Files.isRegularFile(file)) {
+            // SPA fallback for app routes only; missing asset requests remain 404.
+            if (decoded.contains(".") && !decoded.endsWith(".html")) { json(ex, 404, Map.of("ok", false, "message", "Không tìm thấy tài nguyên.")); return; }
+            file = staticRoot.resolve("index.html");
+        }
+        String contentType = contentType(file);
+        ex.getResponseHeaders().set("Content-Type", contentType);
+        byte[] bytes = Files.readAllBytes(file);
+        ex.getResponseHeaders().set("Cache-Control", "no-cache");
+        if ("HEAD".equalsIgnoreCase(ex.getRequestMethod())) { ex.sendResponseHeaders(200, -1); return; }
+        ex.sendResponseHeaders(200, bytes.length);
+        try (OutputStream out = ex.getResponseBody()) { out.write(bytes); }
+    }
+
+    private static String contentType(Path path) {
+        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".html")) return "text/html; charset=utf-8";
+        if (name.endsWith(".js")) return "text/javascript; charset=utf-8";
+        if (name.endsWith(".css")) return "text/css; charset=utf-8";
+        if (name.endsWith(".json")) return "application/json; charset=utf-8";
+        if (name.endsWith(".svg")) return "image/svg+xml";
+        if (name.endsWith(".png")) return "image/png";
+        if (name.endsWith(".woff2")) return "font/woff2";
+        return "application/octet-stream";
+    }
+
+    private static Map<String,Object> readBody(HttpExchange ex) throws IOException {
+        long announced = 0;
+        try { announced = Long.parseLong(ex.getRequestHeaders().getFirst("Content-Length")); } catch (Exception ignored) { }
+        if (announced > MAX_BODY_BYTES) throw new ApiException(413, "BODY_TOO_LARGE", "Nội dung yêu cầu vượt giới hạn." );
+        byte[] bytes = ex.getRequestBody().readNBytes(MAX_BODY_BYTES + 1);
+        if (bytes.length > MAX_BODY_BYTES) throw new ApiException(413, "BODY_TOO_LARGE", "Nội dung yêu cầu vượt giới hạn.");
+        if (bytes.length == 0) return new LinkedHashMap<>();
+        String json = new String(bytes, StandardCharsets.UTF_8);
+        try { return AssignmentJson.object(json); }
+        catch (RuntimeException e) { throw new ApiException(400, "INVALID_JSON", "JSON yêu cầu không hợp lệ."); }
+    }
+
+    private static long queryLong(URI uri, String key, long fallback) {
+        String query = uri.getRawQuery(); if (query == null) return fallback;
+        for (String pair : query.split("&")) { String[] bits = pair.split("=", 2); if (bits.length == 2 && bits[0].equals(key)) try { return Long.parseLong(bits[1]); } catch (NumberFormatException ignored) { } }
+        return fallback;
+    }
+    private static long positiveLong(Map<String,Object> body, String key) { long value = AssignmentJson.number(body, key, -1); if (value <= 0) throw new ApiException(400, "INVALID_NUMBER", key + " phải là số dương."); return value; }
+    private static long nonNegativeLong(Map<String,Object> body, String key) { long value = AssignmentJson.number(body, key, -1); if (value < 0) throw new ApiException(400, "INVALID_NUMBER", key + " phải là số không âm."); return value; }
+    private static String text(Map<String,Object> body, String key, String fallback) { return AssignmentJson.text(body, key, fallback); }
+    private static Map<String,Object> map(Object... pairs) { return AssignmentJson.mapOf(pairs); }
+    private static Map<String,Object> identityMap(Identity i) { return map("userId", i.userId(), "username", i.username(), "displayName", i.displayName(), "role", i.role().name()); }
+    private static String safeMessage(Throwable e) { String m=e.getMessage(); return m==null||m.isBlank()?"Yêu cầu không hợp lệ.":m.replaceAll("[\\r\\n]", " "); }
+
+    private static void securityHeaders(Headers h) {
+        h.set("X-Content-Type-Options", "nosniff"); h.set("X-Frame-Options", "DENY");
+        h.set("Referrer-Policy", "same-origin"); h.set("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()");
+        h.set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    }
+    private static void corsPreflight(HttpExchange ex) throws IOException {
+        String origin = ex.getRequestHeaders().getFirst("Origin");
+        if (origin != null && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
+            ex.getResponseHeaders().set("Access-Control-Allow-Origin", origin);
+            ex.getResponseHeaders().set("Vary", "Origin"); ex.getResponseHeaders().set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+            ex.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        }
+        ex.sendResponseHeaders(204, -1);
+    }
+    private static void json(HttpExchange ex, int status, Object object) throws IOException {
+        byte[] b = AssignmentJson.stringify(object).getBytes(StandardCharsets.UTF_8);
+        ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        ex.getResponseHeaders().set("Cache-Control", "no-store"); ex.sendResponseHeaders(status, b.length);
+        try (OutputStream out = ex.getResponseBody()) { out.write(b); }
+    }
+
+    private void cleanup() {
+        if (closed) return; long now=System.currentTimeMillis();
+        for (WebSession s : sessions.values()) if (s.closed || now-s.lastSeen>SESSION_TTL_MILLIS || s.socket.isClosed()) closeSession(s);
+        loginAttempts.entrySet().removeIf(e -> e.getValue().isEmpty());
+    }
+    private void closeSession(WebSession s) {
+        if (s == null) return;
+        calls.leave(s.peerId);
+        try {
+            String roomId = currentRoomId(s);
+            if (!roomId.isBlank()) endScreenShare(roomId, s.peerId, "Người chia sẻ đã mất kết nối.");
+        } catch (RuntimeException ignored) { }
+        sessions.remove(s.token, s); sessionsByCoreId.remove(s.coreSessionId, s); sessionsByPeerId.remove(s.peerId, s);
+        if (s.markClosed()) s.close();
+    }
+
+    @Override public synchronized void close() {
+        if (closed) return; closed=true; started=false; http.stop(1); scheduler.shutdownNow();
+        classroom.close();
+        for (WebSession s : List.copyOf(sessions.values())) closeSession(s);
+        executor.shutdownNow();
+    }
+
+    private record Event(long id, String message, long timestamp) { Map<String,Object> asMap() { return map("id",id,"message",message,"timestamp",timestamp); } }
+    private record ScreenSignal(long id, String roomId, String kind, String fromPeerId, String payload, long timestamp) {
+        Map<String,Object> asMap() { return map("id",id,"roomId",roomId,"kind",kind,"fromPeerId",fromPeerId,"payload",payload,"timestamp",timestamp); }
+    }
+
+    private static final class WebSession {
+        final String token=UUID.randomUUID().toString(); final String peerId=UUID.randomUUID().toString();
+        final String coreSessionId; final Identity identity; final Socket socket;
+        final DataInputStream in; final DataOutputStream out;
+        final AtomicLong eventSequence=new AtomicLong(), screenSequence=new AtomicLong();
+        final Deque<Event> events=new ArrayDeque<>(); final Deque<ScreenSignal> screenSignals=new ArrayDeque<>();
+        volatile long lastSeen=System.currentTimeMillis(); volatile boolean closed;
+        volatile ScheduledFuture<?> heartbeat;
+        private WebSession(Socket socket, DataInputStream in, DataOutputStream out, String coreSessionId, Identity identity) {
+            this.socket=socket; this.in=in; this.out=out; this.coreSessionId=coreSessionId; this.identity=identity;
+        }
+        static WebSession login(int port, String username, String password) throws Exception {
+            Socket socket = new Socket(); socket.connect(new InetSocketAddress("127.0.0.1", port), 4000); socket.setTcpNoDelay(true); socket.setSoTimeout(8000);
+            DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
+            DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
+            Protocol.send(out, "/login " + username + " " + password);
+            String response;
+            try { response=Protocol.receive(in); } catch (Exception e) { socket.close(); throw new ApiException(503,"AUTH_SERVER_UNAVAILABLE","Không nhận được phản hồi xác thực từ server."); }
+            Matcher m=LOGIN_OK.matcher(response);
+            if (!m.matches()) { socket.close(); throw new ApiException(401,"LOGIN_FAILED", response.startsWith("[LOGIN_FAILED]")?"Sai tên đăng nhập hoặc mật khẩu.":safeMessage(new IOException(response))); }
+            Identity identity=new Identity(m.group(2),username,m.group(4),Identity.Role.valueOf(m.group(3)));
+            socket.setSoTimeout(0);
+            WebSession result=new WebSession(socket,in,out,m.group(1),identity);
+            Thread reader=new Thread(result::readLoop,"studyfix-web-session-"+username); reader.setDaemon(true); reader.start();
+            return result;
+        }
+        synchronized void send(String command) throws IOException { if (closed) throw new IOException("Phiên web đã đóng."); Protocol.send(out, command); }
+        private void readLoop() {
+            try { while(!closed) { String message=Protocol.receive(in); if (message.equals("/pong")) continue; addEvent(message); } }
+            catch (IOException e) { if(!closed) addEvent("[CONNECTION_LOST] Kết nối tới StudyFix Server đã đóng."); }
+            finally { if (!closed) closed=true; try { socket.close(); } catch(IOException ignored){} }
+        }
+        private synchronized void addEvent(String message) {
+            Event e=new Event(eventSequence.incrementAndGet(),message,System.currentTimeMillis()); events.addLast(e); while(events.size()>500) events.removeFirst();
+        }
+        synchronized List<Map<String,Object>> eventsAfter(long after,int max) { List<Map<String,Object>> out=new ArrayList<>(); for(Event e:events) if(e.id()>after){out.add(e.asMap());if(out.size()>=max)break;} return out; }
+        synchronized void addScreenSignal(String roomId,String kind,String fromPeerId,String payload) { screenSignals.addLast(new ScreenSignal(screenSequence.incrementAndGet(),roomId,kind,fromPeerId,payload,System.currentTimeMillis()));while(screenSignals.size()>200)screenSignals.removeFirst(); }
+        synchronized List<Map<String,Object>> screenSignalsAfter(long after,String roomId) { List<Map<String,Object>> result=new ArrayList<>();for(ScreenSignal s:screenSignals)if(s.id()>after&&Objects.equals(s.roomId(),roomId))result.add(s.asMap());return result; }
+        synchronized boolean markClosed(){if(closed && socket.isClosed())return false;closed=true;return true;}
+        void close(){closed=true;if(heartbeat!=null)heartbeat.cancel(false);try{if(socket.isConnected()&&!socket.isClosed())Protocol.send(out,"/quit");}catch(IOException ignored){}try{socket.close();}catch(IOException ignored){}}
+    }
+    private static final class ApiException extends RuntimeException {
+        final int status; final String code;
+        ApiException(int status,String code,String message){super(message);this.status=status;this.code=code;}
+    }
+}

@@ -1,0 +1,14 @@
+﻿[
+    {
+        "Path":  "D:\\Laptrinhmang\\studyfix\\data\\studyfix.db",
+        "Hash":  "40CF07C52BFAA52B334EF341456F970787F6DC701FFE18AD3C572CB5056DBD70"
+    },
+    {
+        "Path":  "D:\\Laptrinhmang\\studyfix\\data\\studyfix.db-shm",
+        "Hash":  "40F317D9ADE692BDD874B37C93A6924C31E2642B3750C579212FBFB8998184AD"
+    },
+    {
+        "Path":  "D:\\Laptrinhmang\\studyfix\\data\\studyfix.db-wal",
+        "Hash":  "5C3721488441CC929E3CCA397F24140666290F8B3C094B951F93F7DDCAB23A97"
+    }
+]

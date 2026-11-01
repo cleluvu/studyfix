@@ -1,0 +1,4 @@
+﻿begin_char=637
+keyboard_notice_char=47361
+end_char=150719
+notice_inside_history=True

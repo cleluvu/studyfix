@@ -1,0 +1,11 @@
+Updated screen-share UX build status
+
+- Client source compiles with javac --release 17: PASS
+- ClientSelfTest: PASS
+- Executable JAR rebuilt: studyfix-client/target/studyfix-client-1.0.0.jar
+- Screen-share UX: removed local-preview debug button; viewer stage scales live frames to fit panel while preserving aspect ratio; sender shows a status instead of previewing its own captured frames; no-frame/connecting/stopped states added.
+- Maven build: not run in this environment.
+- Client-to-real-server stream test: not run in this environment.
+- LAN test: pending on the user's Windows machines.
+
+Important: the screen capture currently captures the primary desktop using Java Robot. If publisher and viewer are separate processes on the SAME physical desktop, the viewer window may be included in captured frames and create a mirror/infinity effect. For the realistic test, run publisher and viewer on two different machines in the LAN. If same-machine testing is required, implement source selection (specific window/screen) or exclude the viewer window.

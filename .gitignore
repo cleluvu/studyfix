@@ -1,0 +1,22 @@
+# Generated Java build output
+**/build/
+**/dist/
+**/target/
+*.class
+
+# Local runtime data and logs
+**/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Machine-specific settings and credentials
+**/nbproject/private/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+Thumbs.db
+.DS_Store

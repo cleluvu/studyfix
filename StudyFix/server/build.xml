@@ -87,6 +87,8 @@
         <java classname="studyfix.ClassroomIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
@@ -95,12 +97,16 @@
         <java classname="studyfix.MeetingCallIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
     </target>
     <target name="chat-test" depends="classroom-test" description="Room chat authorization, author IDs and unread counts">
         <java classname="studyfix.ChatNotificationIntegrationTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
     </target>
     <target name="room-test" depends="classroom-test" description="Custom room codes, five-room pages and manual owner deletion">
@@ -108,6 +114,8 @@
             <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
     </target>
     <target name="practice-test" depends="classroom-test" description="Room-independent practice, private snapshots and shared grading worker">
@@ -115,6 +123,8 @@
             <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
     </target>
     <target name="practice-docker-test" depends="classroom-test" description="Real Docker Java practice run and AC/WA/CE submissions">
@@ -122,9 +132,69 @@
             <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
     </target>
-    <target name="integration-test" depends="meeting-test,chat-test,room-test,practice-test" description="Java 26 compile + real TCP/SQLite tests on localhost">
+    <target name="server-monitor-test" depends="classroom-test" description="Server Manager named rooms, branch snapshots, activity and history selection">
+        <java classname="studyfix.ServerMonitorIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="server-reliability-test" depends="server-monitor-test" description="Membership concurrency, heartbeat cleanup, result write recovery and login lock scope">
+        <java classname="studyfix.ServerReliabilityIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
+            <jvmarg value="-Dstdout.encoding=UTF-8"/>
+            <jvmarg value="-Dstderr.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="lan-presence-test" depends="classroom-test" description="LAN identity, IP privacy, independent sessions and heartbeat timeout">
+        <java classname="studyfix.LanPresenceIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
+        </java>
+    </target>
+    <target name="websocket-presence-test" depends="classroom-test" description="Real RFC6455 auth, heartbeat, Origin and IP privacy">
+        <java classname="studyfix.WebSocketPresenceIntegrationTest" fork="true" failonerror="true" timeout="60000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
+        </java>
+    </target>
+    <target name="exam-mode-test" depends="classroom-test" description="Exam permissions, event dedup, counters, WebSocket and persistence using isolated SQLite">
+        <java classname="studyfix.ExamModeIntegrationTest" fork="true" failonerror="true" timeout="120000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
+        </java>
+    </target>
+    <target name="mysql-management-test" depends="jar" description="Requires explicit MySQL database ending _test and environment credentials">
+        <mkdir dir="${build.dir}/mysql-test-classes"/>
+        <javac srcdir="test" destdir="${build.dir}/mysql-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false"><classpath path="${javac.classpath};${build.classes.dir}"/></javac>
+        <java classname="studyfix.MySqlAdminIntegrationTest" fork="true" failonerror="true" timeout="90000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/mysql-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+        </java>
+    </target>
+    <target name="integration-test" depends="meeting-test,chat-test,room-test,practice-test,server-monitor-test,server-reliability-test,lan-presence-test,websocket-presence-test,exam-mode-test" description="Java 26 compile + real TCP/SQLite tests on localhost">
         <mkdir dir="${build.dir}/integration-classes"/>
         <javac srcdir="src" destdir="${build.dir}/integration-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
             <classpath path="${javac.classpath}"/>
@@ -134,15 +204,21 @@
         </javac>
         <java classname="studyfix.assignment.AssignmentModuleSelfTest" fork="true" failonerror="true" timeout="60000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
         <java classname="studyfix.assignment.AssignmentProtocolIntegrationTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
         </java>
         <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
@@ -150,6 +226,8 @@
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
@@ -157,11 +235,15 @@
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>
         <java classname="studyfix.IntegrationTest" fork="true" failonerror="true" timeout="120000">            <jvmarg value="-Dstudyfix.screen.port=0"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
@@ -169,11 +251,15 @@
         </java>
         <java classname="studyfix.WebGatewayIntegrationTest" fork="true" failonerror="true" timeout="45000">            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
         </java>
         <java classname="studyfix.ScreenShareRelayIntegrationTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
@@ -181,21 +267,29 @@
         </java>
         <java classname="studyfix.PersonOneTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstudyfix.screen.port=0"/>
         </java>
         <java classname="studyfix.ServerAdminLiveTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstudyfix.screen.port=0"/>
             <jvmarg value="-Dstudyfix.assignment.port=0"/>
             <jvmarg value="-Dstudyfix.web.port=0"/>
         </java>
         <java classname="studyfix.ConsoleHistoryInterleaveTest" fork="true" failonerror="true" timeout="30000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
         </java>
         <java classname="studyfix.ConsoleClientTest" fork="true" failonerror="true" timeout="60000">            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
             <classpath path="${javac.classpath};${build.dir}/integration-classes"/>
@@ -209,6 +303,8 @@
         <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/edit-session-classes"/>
             <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
             <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv"/>
+            <sysproperty key="studyfix.management.db" value="sqlite"/>
             <jvmarg value="-Dstdout.encoding=UTF-8"/>
             <jvmarg value="-Dstderr.encoding=UTF-8"/>
         </java>

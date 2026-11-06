@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 import static studyfix.ClassroomRepository.*;
 
-/** Master -> independent student branches -> immutable checks -> teacher-selected merge. */
+/** Tách code Master thành nhánh riêng cho sinh viên, lưu kết quả kiểm tra rồi cho giáo viên chọn nhánh để gộp. */
 final class ClassroomService implements AutoCloseable {
     @FunctionalInterface interface Exercises { Exercise get(String id) throws SQLException; }
     private final Server core;
@@ -77,7 +77,11 @@ final class ClassroomService implements AutoCloseable {
                 if(expected!=b.version())throw new IllegalStateException("Nhánh đã đổi phiên bản ở phiên đăng nhập khác. Sao chép nháp và tải lại trước khi lưu.");
                 if(action.equals("BRANCH_SAVE")) {
                     String code=source(body);
-                    if(!b.code().equals(code))repo.saveBranch(new Branch(b.room(),b.round(),b.userId(),b.username(),b.name(),code,b.version()+1,b.baseVersion(),System.currentTimeMillis()),expected);
+                    if(!b.code().equals(code)) {
+                        repo.saveBranch(new Branch(b.room(),b.round(),b.userId(),b.username(),b.name(),code,b.version()+1,b.baseVersion(),System.currentTimeMillis()),expected);
+                        core.log("Lưu nhánh phòng " + room.getRoomCode() + " [ID=" + room.getRoomId() + "] học sinh="
+                                + who.displayName() + " (" + who.username() + ") vòng=" + s.round() + " v" + (b.version()+1));
+                    }
                 } else {
                     List<Check> previous=repo.checks(s,who.userId(),1);
                     if(!previous.isEmpty()&&(Set.of("QUEUED","RUNNING").contains(previous.getFirst().status())||System.currentTimeMillis()-previous.getFirst().createdAt()<3000))
@@ -87,6 +91,8 @@ final class ClassroomService implements AutoCloseable {
                     repo.createCheck(check);pending.put(check.id(),check);
                     try { grader.execute(()->grade(check,e)); }
                     catch(RejectedExecutionException full) {pending.remove(check.id());repo.result(check.id(),"JUDGE_ERROR",mapOf("verdict","JUDGE_ERROR","feedback","Hàng đợi chấm đầy; thử lại sau."));throw new IllegalStateException("Hàng đợi chấm đầy; thử lại sau.");}
+                    core.log("Kiểm tra nhánh phòng " + room.getRoomCode() + " [ID=" + room.getRoomId() + "] học sinh="
+                            + who.displayName() + " (" + who.username() + ") vòng=" + s.round() + " nhánh v" + b.version());
                 }
                 return view(room,client);
             }
@@ -96,7 +102,7 @@ final class ClassroomService implements AutoCloseable {
             CodeRevision revision=null;
             List<Branch> branches=List.of();
             String detail=action;
-            // Prevent delayed buttons from applying to another phase/round of the class.
+            // Chặn yêu cầu từ nút bấm cũ để tránh áp dụng nhầm sang bước hoặc vòng học mới.
             if(!text(body,"expectedPhase","").equals(s.phase())||number(body,"round",-1)!=s.round())
                 throw new IllegalStateException("Phiên học đã đổi trạng thái. Đồng bộ rồi thử lại.");
             switch(action) {
@@ -150,6 +156,9 @@ final class ClassroomService implements AutoCloseable {
             repo.change(next,who,action,detail,branches,revision);
             if(revision!=null)room.publishClassroomRevision(revision,next.phase());
             else room.classroomNotice(next.phase());
+            core.log("Lớp học phòng " + room.getRoomCode() + " [ID=" + room.getRoomId() + "] "
+                    + who.displayName() + " (" + who.username() + ") " + action + " · " + detail
+                    + " · " + next.phase() + " vòng=" + next.round() + " Master v" + room.snapshot().version());
             return view(room,client);
         }
     }
@@ -224,7 +233,13 @@ final class ClassroomService implements AutoCloseable {
             if(closed.get())return;
             repo.result(check.id(),"RUNNING",Map.of());
             GradingResult r=sandbox.grade(check.id(),check.code(),exercise.tests(),100);
-            if(!closed.get())repo.result(check.id(),"DONE",mapOf("verdict",r.verdict(),"score",r.score(),"maxScore",r.maxScore(),"passed",r.passed(),"total",r.total(),"feedback",r.feedback(),"durationMs",r.durationMillis(),"publicTests",r.publicTests()));
+            if(!closed.get()) {
+                repo.result(check.id(),"DONE",mapOf("verdict",r.verdict(),"score",r.score(),"maxScore",r.maxScore(),"passed",r.passed(),"total",r.total(),"feedback",r.feedback(),"durationMs",r.durationMillis(),"publicTests",r.publicTests()));
+                Room room=core.rooms.get(check.room());
+                core.log("Kết quả nhánh phòng " + (room==null?check.room():room.getRoomCode()) + " [ID=" + check.room()
+                        + "] userId=" + check.userId() + " vòng=" + check.round() + " nhánh v" + check.branchVersion()
+                        + " · " + r.verdict() + " " + r.passed() + "/" + r.total());
+            }
         } catch(Exception e) {
             core.log("Lỗi chấm nhánh "+check.id()+": "+e.getClass().getSimpleName());
             if(!closed.get())try{repo.result(check.id(),"JUDGE_ERROR",mapOf("verdict","JUDGE_ERROR","feedback","Dịch vụ chấm gặp lỗi. Hãy thử lại."));}catch(SQLException failure){core.log("Không lưu được lỗi chấm: "+failure.getMessage());}

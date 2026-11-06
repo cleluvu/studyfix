@@ -7,7 +7,7 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.util.*;
 
-/** Independent practice snapshots in the existing learning database, sharing its catalog. */
+/** Lưu các phiên bản luyện tập riêng trong database học tập hiện có, dùng chung ngân hàng đề. */
 public final class PracticeRepository {
     private final String url;
     public PracticeRepository(Path database)throws SQLException {
@@ -19,7 +19,10 @@ public final class PracticeRepository {
         }
     }
     private Connection open()throws SQLException {
-        Connection c=DriverManager.getConnection(url);
+        org.sqlite.SQLiteConfig config = new org.sqlite.SQLiteConfig();
+        // Reserve the writer before reading MAX(version), avoiding a deferred read-to-write upgrade race.
+        config.setTransactionMode(org.sqlite.SQLiteConfig.TransactionMode.IMMEDIATE);
+        Connection c=DriverManager.getConnection(url,config.toProperties());
         try(Statement s=c.createStatement()){s.execute("PRAGMA foreign_keys=ON");s.execute("PRAGMA busy_timeout=5000");}return c;
     }
     private Map<String,Object> row(ResultSet r)throws SQLException {
@@ -32,22 +35,23 @@ public final class PracticeRepository {
         try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT * FROM p3_practice_submissions WHERE user_id=? AND request_key=?")){p.setString(1,user);p.setString(2,key);try(ResultSet r=p.executeQuery()){return r.next()?row(r):null;}}
     }
     public synchronized Map<String,Object> create(Identity user,String exercise,String source,boolean run,String key,int tests)throws SQLException {
+        String id=UUID.randomUUID().toString();
         try(Connection c=open()) {
             c.setAutoCommit(false);
             try {
                 int version=0;
                 if(!run)try(PreparedStatement p=c.prepareStatement("SELECT COALESCE(MAX(version),0)+1 FROM p3_practice_submissions WHERE user_id=? AND exercise_id=? AND is_run=0")){p.setString(1,user.userId());p.setString(2,exercise);try(ResultSet r=p.executeQuery()){r.next();version=r.getInt(1);}}
-                String id=UUID.randomUUID().toString();
                 try(PreparedStatement p=c.prepareStatement("INSERT INTO p3_practice_submissions(id,exercise_id,user_id,version,is_run,source_code,submitted_at,status,verdict,total_tests,request_key) VALUES(?,?,?,?,?,?,?,'QUEUED','QUEUED',?,?)")) {
                     p.setString(1,id);p.setString(2,exercise);p.setString(3,user.userId());p.setInt(4,version);p.setInt(5,run?1:0);p.setString(6,source);p.setLong(7,System.currentTimeMillis());p.setInt(8,tests);p.setString(9,key);p.executeUpdate();
                 }
-                c.commit();return get(id);
-            }catch(SQLException e){c.rollback();throw e;}
+                c.commit();
+            }catch(SQLException e){try{c.rollback();}catch(SQLException rollback){e.addSuppressed(rollback);}throw e;}
         }
+        return get(id);
     }
     public void running(String id)throws SQLException {try(Connection c=open();PreparedStatement p=c.prepareStatement("UPDATE p3_practice_submissions SET status='RUNNING',verdict='RUNNING' WHERE id=? AND status='QUEUED'")){p.setString(1,id);p.executeUpdate();}}
     public void finish(String id,GradingResult result)throws SQLException {
-        // Only public diagnostics are retained in the response payload, never hidden input/output.
+        // Phản hồi chỉ giữ thông tin lỗi được phép công khai, không chứa đầu vào hay đáp án test ẩn.
         List<Map<String,Object>> tests=new ArrayList<>();int ordinal=0;
         for(Map<String,Object> test:result.publicTests()) {
             ++ordinal;boolean hidden=Boolean.TRUE.equals(test.get("hidden"));

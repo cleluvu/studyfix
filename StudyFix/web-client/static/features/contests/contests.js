@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { state } from "../../core/state.js";
 import { assignment } from "../../core/api.js";
@@ -9,6 +9,7 @@ import { btn, pill, empty } from "../../ui/components.js";
 import { modal } from "../../ui/modal.js";
 import { pageHeader, render } from "../../ui/render.js";
 import { toast } from "../../ui/toast.js";
+import {loadExam,renderExamMonitor,renderStudentExamStatus} from "./exam-monitoring.js";
 
 export function renderContests() {
   if (!state.room)
@@ -32,7 +33,7 @@ export function renderContestCard(c, teacher) {
   const start = Number(c.startAt || 0);
   const end = Number(c.endAt || 0);
   const past = nowMs() > end;
-  return `<div class="card contest-card"><div class="contest-card-head"><div class="contest-logo">♜</div><div><h3>${esc(c.title || c.name || "Kỳ thi StudyFix")}</h3><p>${esc(c.problemCount ?? c.exerciseCount ?? "")} bài · ${c.contestType === "INDIVIDUAL" ? "Cá nhân" : "Nhóm"}</p></div><span class="push"></span>${pill(past ? "Đã kết thúc" : live ? "Đang diễn ra" : "Sắp diễn ra", past ? "neutral" : live ? "easy" : "medium")}</div><div class="contest-meta"><span class="chip">◷ ${dateTime(start)}</span><span class="chip">Kết thúc ${dateTime(end)}</span></div><div class="footer-row">${btn(teacher ? "Xem kỳ thi" : "Vào thi →", "select-contest", "btn-primary", `data-contest-id="${esc(c.id || c.contestId)}"`)}${teacher ? btn("BXH", "open-leaderboard", "btn-soft btn-sm", `data-contest-id="${esc(c.id || c.contestId)}"`) : ""}</div></div>`;
+  return `<div class="card contest-card"><div class="contest-card-head"><div class="contest-logo">♜</div><div><h3>${esc(c.title || c.name || "Kỳ thi StudyFix")}</h3><p>${esc(!teacher?(c.assignedProblemCount??(c.distributionMode==="RANDOM"?c.problemsPerStudent:c.problemCount??c.exerciseCount??"")):(c.problemCount??c.exerciseCount??""))} bài${c.distributionMode==="RANDOM"?" · Phát ngẫu nhiên":""} · ${c.contestType === "INDIVIDUAL" ? "Cá nhân" : "Nhóm"}</p></div><span class="push"></span>${pill(past ? "Đã kết thúc" : live ? "Đang diễn ra" : "Sắp diễn ra", past ? "neutral" : live ? "easy" : "medium")}</div><div class="contest-meta"><span class="chip">◷ ${dateTime(start)}</span><span class="chip">Kết thúc ${dateTime(end)}</span></div><div class="footer-row">${btn(teacher ? "Xem kỳ thi" : "Vào thi →", "select-contest", "btn-primary", `data-contest-id="${esc(c.id || c.contestId)}"`)}${teacher ? btn("Giao đề", "contest-assign-open", "btn-soft btn-sm", `data-contest-id="${esc(c.id||c.contestId)}" ${past?"disabled":""}`) : ""}${teacher ? btn("BXH", "open-leaderboard", "btn-soft btn-sm", `data-contest-id="${esc(c.id || c.contestId)}"`) : ""}</div></div>`;
 }
 
 export function renderContestWorkspace() {
@@ -40,7 +41,7 @@ export function renderContestWorkspace() {
   if (!w) return "";
   const e = w.problem || {};
   const c = state.contestDetail?.contest || {};
-  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(e.id)} · ${esc(e.title)}</h3><p>${esc(c.title || "Kỳ thi")} · ${contestIsLive(c) ? "Đang diễn ra" : "Chỉ xem đề"}</p></div><span class="push"></span>${btn("Đóng bài thi", "close-contest-work", "btn-ghost btn-sm")}</div><div class="card-body"><div class="work-layout"><section class="card statement-card"><h3>${esc(e.title)}</h3><p>${esc(e.statement || "")}</p><h4>Đầu vào</h4><p>${esc(e.inputFormat || "—")}</p><h4>Đầu ra</h4><p>${esc(e.outputFormat || "—")}</p><h4>Ràng buộc</h4><p>${esc(e.constraints || "—")}</p>${(e.publicTests || []).map((t, i) => `<div class="test-row"><strong>Ví dụ ${i + 1}</strong><div>Input<pre>${esc(t.input)}</pre></div><div>Output<pre>${esc(t.expectedOutput)}</pre></div></div>`).join("")}</section><div class="work-editor-column"><section class="card code-card"><div class="card-head"><div><h3>Trình soạn thảo bài thi</h3><p>Main.java</p></div><span class="push"></span>${pill(contestIsLive(c) ? "ĐANG THI" : "CHƯA THỂ NỘP", contestIsLive(c) ? "easy" : "neutral")}</div><textarea id="contest-code" class="code-editor" spellcheck="false">${esc(state.contestCode || e.template || "")}</textarea><div class="code-actions"><small>Đồng hồ và thời hạn do server xác minh.</small>${btn("Nạp code mẫu", "reset-contest-code", "btn-soft btn-sm")}${btn("Nộp bài thi", "submit-contest-work", "btn-primary btn-sm", contestIsLive(c) ? "" : "disabled")}</div></section><section class="card submission-panel" style="margin-top:13px"><div class="section-caption">Kết quả nộp</div>${w.result ? renderSubmissionResult(w.result) : '<div class="empty-slim">Chưa nộp bài này.</div>'}</section></div></div></div></section>`;
+  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(e.id)} · ${esc(e.title)}</h3><p>${esc(c.title || "Kỳ thi")} · ${contestIsLive(c) ? "Đang diễn ra" : "Chỉ xem đề"}</p></div><span class="push"></span>${btn("Đóng bài thi", "close-contest-work", "btn-ghost btn-sm")}</div><div class="card-body"><div class="work-layout"><section class="card statement-card"><h3>${esc(e.title)}</h3><p>${esc(e.statement || "")}</p><h4>Đầu vào</h4><p>${esc(e.inputFormat || "—")}</p><h4>Đầu ra</h4><p>${esc(e.outputFormat || "—")}</p><h4>Ràng buộc</h4><p>${esc(e.constraints || "—")}</p>${(e.publicTests || []).map((t, i) => `<div class="test-row"><strong>Ví dụ ${i + 1}</strong><div>Input<pre>${esc(t.input)}</pre></div><div>Output<pre>${esc(t.expectedOutput)}</pre></div></div>`).join("")}</section><div class="work-editor-column"><section class="card code-card"><div class="card-head"><div><h3>Trình soạn thảo bài thi</h3><p>Main.java</p></div><span class="push"></span>${pill(contestIsLive(c) ? "ĐANG THI" : "CHƯA THỂ NỘP", contestIsLive(c) ? "easy" : "neutral")}</div>${renderStudentExamStatus()}<textarea id="contest-code" class="code-editor" spellcheck="false">${esc(state.contestCode || e.template || "")}</textarea><div class="code-actions"><small>Đồng hồ và thời hạn do server xác minh.</small>${btn("Nạp code mẫu", "reset-contest-code", "btn-soft btn-sm")}<label class="btn btn-soft btn-sm"><input id="contest-code-file" type="file" accept=".java,.txt" hidden ${contestIsLive(c)?"":"disabled"}/>Nộp file code</label>${btn("Nộp bài thi", "submit-contest-work", "btn-primary btn-sm", contestIsLive(c) ? "" : "disabled")}</div></section><section class="card submission-panel" style="margin-top:13px"><div class="section-caption">Kết quả nộp</div>${w.result ? renderSubmissionResult(w.result) : '<div class="empty-slim">Chưa nộp bài này.</div>'}</section></div></div></div></section>`;
 }
 
 export function renderContestCreator() {
@@ -52,7 +53,7 @@ export function renderContestCreator() {
           .toLowerCase()
           .includes(state.contestQuery.toLowerCase())),
   );
-  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>Tạo kỳ thi từ ngân hàng bài</h3><p>Chọn bài bằng mã bài từ catalog; không yêu cầu giao assignment trước.</p></div><span class="push"></span>${btn("Đóng", "close-contest-create", "btn-ghost btn-sm")}</div><div class="contest-create-body"><form id="contest-form"><div class="form-grid"><div class="form-row full"><label>Tên kỳ thi</label><input class="field" name="title" required maxlength="120" placeholder="Ví dụ: Kiểm tra cấu trúc dữ liệu tuần 3" value="${esc(state.contestTitle)}" /></div><div class="form-row"><label>Bắt đầu sau</label><select name="startInMinutes" class="select"><option value="0">Bắt đầu ngay</option><option value="5">Sau 5 phút</option><option value="15">Sau 15 phút</option><option value="60">Sau 1 giờ</option><option value="1440">Ngày mai</option></select></div><div class="form-row"><label>Thời lượng</label><select name="durationMinutes" class="select">${[
+  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>Tạo kỳ thi từ ngân hàng bài</h3><p>Chọn bài bằng mã bài từ catalog; không yêu cầu giao assignment trước.</p></div><span class="push"></span>${btn("Đóng", "close-contest-create", "btn-ghost btn-sm")}</div><div class="contest-create-body"><form id="contest-form"><div class="form-grid"><div class="form-row full"><label>Tên kỳ thi</label><input class="field" name="title" required maxlength="120" placeholder="Ví dụ: Kiểm tra cấu trúc dữ liệu tuần 3" value="${esc(state.contestTitle)}" /></div><div class="form-row"><label>Bắt đầu sau</label><select name="startInMinutes" class="select">${[[0, "Bắt đầu ngay"], [5, "Sau 5 phút"], [15, "Sau 15 phút"], [60, "Sau 1 giờ"], [1440, "Ngày mai"]].map(([v, label]) => `<option value="${v}" ${Number(state.contestStart) === v ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="form-row"><label>Thời lượng</label><select name="durationMinutes" class="select">${[
     [30, "30 phút"],
     [45, "45 phút"],
     [60, "1 giờ"],
@@ -67,7 +68,7 @@ export function renderContestCreator() {
     )
     .join(
       "",
-    )}</select></div></div><div class="hr"></div><div class="form-row"><label>Tìm bài có thể thi</label><input class="field" id="contest-query" placeholder="Mã bài, tên bài, chủ đề…" value="${esc(state.contestQuery)}" /><small>Contest cá nhân chỉ chọn BUILD_FROM_SCRATCH. Bài sửa lỗi cộng tác được giữ trong workflow phòng học, không bị tính nhầm là bài cá nhân.</small></div><div class="contest-problem-list">${filtered.map((e) => `<label class="check-row"><input type="checkbox" data-contest-exercise="${esc(e.id)}" ${state.contestSelected.includes(e.id) ? "checked" : ""} /><span style="flex:1"><strong>${esc(e.id)} · ${esc(e.title)}</strong><small>${esc(e.topic || "")} · ${esc(e.difficulty || "")}</small></span>${pill(e.difficulty || "—", diffClass(e.difficulty))}</label>`).join("") || `<div class="empty-slim">Không có bài lập trình từ đầu trong bộ lọc này.</div>`}</div><div class="footer-row"><span class="subtle-text">Đã chọn ${state.contestSelected.length}/20 bài</span><span class="push"></span><button class="btn btn-soft" type="button" data-action="close-contest-create">Hủy</button><button class="btn btn-primary" type="submit" ${!state.contestSelected.length ? "disabled" : ""}>Tạo kỳ thi & lưu danh sách bài</button></div></form></div></section>`;
+    )}</select></div><div class="form-row"><label>Phát đề</label><select class="select" name="distributionMode"><option value="ALL" ${state.contestDistribution!=="RANDOM"?"selected":""}>Cùng đề cho cả lớp</option><option value="RANDOM" ${state.contestDistribution==="RANDOM"?"selected":""}>Ngẫu nhiên cho từng sinh viên</option></select></div><div class="form-row"><label>Số bài mỗi sinh viên</label><input class="field" type="number" name="problemsPerStudent" min="1" max="${Math.max(1,state.contestSelected.length)}" value="${esc(state.contestRandomCount||1)}" ${state.contestDistribution==="RANDOM"?"required":"disabled"}/><small>Chọn nhóm bài bên dưới. Đề bốc một lần, tải lại không đổi đề; các sinh viên có thể trùng bài.</small></div></div><div class="hr"></div><div class="form-row"><label>Tìm bài có thể thi</label><input class="field" id="contest-query" placeholder="Mã bài, tên bài, chủ đề…" value="${esc(state.contestQuery)}" /><small>Contest cá nhân chỉ chọn BUILD_FROM_SCRATCH. Bài sửa lỗi cộng tác được giữ trong workflow phòng học, không bị tính nhầm là bài cá nhân.</small></div><div class="exam-settings" style="margin:12px 0"><label>Số bài chọn ngẫu nhiên<input class="field" id="contest-pool-draw-count" type="number" min="1" max="${Math.min(20,filtered.length)}" value="${state.contestPoolDrawCount||1}"/></label>${btn("Chọn ngẫu nhiên từ danh sách","contest-pick-random","btn-soft")}</div><div class="contest-problem-list">${filtered.map((e) => `<label class="check-row"><input type="checkbox" data-contest-exercise="${esc(e.id)}" ${state.contestSelected.includes(e.id) ? "checked" : ""} /><span style="flex:1"><strong>${esc(e.id)} · ${esc(e.title)}</strong><small>${esc(e.topic || "")} · ${esc(e.difficulty || "")}</small></span>${pill(e.difficulty || "—", diffClass(e.difficulty))}</label>`).join("") || `<div class="empty-slim">Không có bài lập trình từ đầu trong bộ lọc này.</div>`}</div><div class="footer-row"><span class="subtle-text">Đã chọn ${state.contestSelected.length}/20 bài</span><span class="push"></span><button class="btn btn-soft" type="button" data-action="close-contest-create">Hủy</button><button class="btn btn-primary" type="submit" ${!state.contestSelected.length ? "disabled" : ""}>Tạo kỳ thi & lưu danh sách bài</button></div></form></div></section>`;
 }
 
 export function renderContestDetail() {
@@ -75,7 +76,7 @@ export function renderContestDetail() {
   if (!c) return "";
   const teacher = state.identity.role === "TEACHER";
   const problems = c.problems || [];
-  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(c.contest?.title || "Chi tiết kỳ thi")}</h3><p>${dateTime(c.contest?.startAt)} → ${dateTime(c.contest?.endAt)}</p></div><span class="push"></span>${btn("Đóng", "close-contest-detail", "btn-ghost btn-sm")}</div><div class="card-body"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${problems.map((p) => `<div class="card contest-card ${!teacher && p.acceptedByMe ? "contest-card-accepted" : ""}"><div class="contest-card-head"><div class="contest-logo">{ }</div><div><h3>${esc(p.id)} · ${esc(p.title)} ${!teacher && p.acceptedByMe ? "✓" : ""}</h3><p>${esc(p.topic || "")} · ${esc(p.difficulty || "")}</p></div>${!teacher && p.acceptedByMe ? pill("AC", "ac") : ""}</div><p>${esc(p.statement || "").slice(0, 200)}</p><div class="footer-row">${btn(!teacher && p.acceptedByMe ? "Xem bài đã AC" : teacher ? "Xem đề" : "Làm bài", "open-contest-problem", p.acceptedByMe && !teacher ? "btn-soft btn-sm" : "btn-primary btn-sm", `data-exercise-id="${esc(p.id)}"`)}</div></div>`).join("")}</div>${teacher ? `<div class="footer-row">${btn("Xem bảng xếp hạng", "open-leaderboard", "btn-soft", `data-contest-id="${esc(c.contest?.id || state.selectedContest?.id || state.selectedContest?.contestId)}"`)}</div>` : ""}</div></section>`;
+  return `<section class="card" style="margin-bottom:16px"><div class="card-head"><div><h3>${esc(c.contest?.title || "Chi tiết kỳ thi")}</h3><p>${dateTime(c.contest?.startAt)} → ${dateTime(c.contest?.endAt)}</p></div><span class="push"></span>${btn("Đóng", "close-contest-detail", "btn-ghost btn-sm")}</div><div class="card-body"><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">${problems.map((p) => `<div class="card contest-card ${!teacher && p.acceptedByMe ? "contest-card-accepted" : ""}"><div class="contest-card-head"><div class="contest-logo">{ }</div><div><h3>${esc(p.id)} · ${esc(p.title)} ${!teacher && p.acceptedByMe ? "✓" : ""}</h3><p>${esc(p.topic || "")} · ${esc(p.difficulty || "")}</p></div>${!teacher && p.acceptedByMe ? pill("AC", "ac") : ""}</div><p>${esc(p.statement || "").slice(0, 200)}</p><div class="footer-row">${btn(!teacher && p.acceptedByMe ? "Xem bài đã AC" : teacher ? "Xem đề" : "Làm bài", "open-contest-problem", p.acceptedByMe && !teacher ? "btn-soft btn-sm" : "btn-primary btn-sm", `data-exercise-id="${esc(p.id)}"`)}</div></div>`).join("")}</div>${teacher ? `<div class="footer-row">${btn("Xem bảng xếp hạng", "open-leaderboard", "btn-soft", `data-contest-id="${esc(c.contest?.id || state.selectedContest?.id || state.selectedContest?.contestId)}"`)}</div>` : ""}</div></section>${teacher&&(c.contest?.distributionMode==="RANDOM"||c.draws?.length)?`<section class="card" style="margin-bottom:16px"><div class="card-head"><h3>Đề đã giao</h3>${btn("Làm mới","select-contest","btn-soft btn-sm",`data-contest-id="${esc(c.contest.id)}"`)}</div><div class="card-body"><p>Danh sách sinh viên và bài đã được phát. Đề đã nhận được giữ nguyên.</p>${(c.draws||[]).map(d=>`<p><strong>${esc(d.displayName)} (${esc(d.username)})</strong> · Bài ${d.ordinal}: ${esc(d.exerciseId)}</p>`).join("")||"Chưa có sinh viên nhận đề."}</div></section>`:""}${teacher?renderExamMonitor(c.contest):""}`;
 }
 
 export function renderLeaderboard(entries) {
@@ -87,6 +88,7 @@ export async function openContest(contestId) {
     id: contestId,
   };
   const d = await assignment("CONTEST_PROBLEMS_GET", { contestId });
+  if(state.contestWork?.contestId!==contestId){state.contestWork=null;state.contestCode="";}
   state.selectedContest = c;
   state.contestDetail = d;
   if (state.identity?.role === "TEACHER") {
@@ -99,6 +101,7 @@ export async function openContest(contestId) {
   } else {
     state.leaderboard = [];
   }
+  await loadExam(contestId);
   render();
 }
 
@@ -115,6 +118,7 @@ export async function openContestProblem(exerciseId) {
     );
     return;
   }
+  await loadExam(state.contestDetail.contest?.id||state.selectedContest.id);
   state.contestWork = {
     contestId: state.contestDetail.contest?.id || state.selectedContest.id,
     problem,
@@ -143,4 +147,26 @@ export async function submitContestWork() {
   };
   render();
   toast("Đã nộp bài thi, đang chấm.", "success");
+}
+
+let uploadingContestFile=false;
+/** File text goes through the same authenticated submission and judging pipeline. */
+export async function submitContestFile(file){
+  if(!file)return;
+  if(uploadingContestFile)throw new Error("Đang đọc file, vui lòng chờ.");
+  if(state.identity?.role!=="STUDENT"||!state.contestWork)throw new Error("Chưa chọn bài thi của sinh viên.");
+  if(!contestIsLive(state.contestDetail?.contest||{}))throw new Error("Kỳ thi chưa bắt đầu hoặc đã kết thúc.");
+  if(!/\.(java|txt)$/i.test(String(file.name||"")))throw new Error("Chỉ hỗ trợ file .java hoặc .txt.");
+  if(file.size>32768)throw new Error("File vượt giới hạn 32 KiB.");
+  const work=state.contestWork,token=state.token,room=state.room?.roomId;
+  uploadingContestFile=true;
+  try{
+    const code=(await file.text()).replace(/^\uFEFF/,"");
+    if(!code.trim()||code.includes("\u0000"))throw new Error("File không có code hợp lệ.");
+    if(new TextEncoder().encode(code).length>32768)throw new Error("Code vượt giới hạn 32 KiB.");
+    if(token!==state.token||room!==state.room?.roomId||work!==state.contestWork||state.page!=="contests")throw new Error("Bài thi hoặc phiên đăng nhập đã thay đổi; hãy chọn lại file.");
+    state.contestCode=code;
+    render();
+    await submitContestWork();
+  }finally{uploadingContestFile=false;}
 }

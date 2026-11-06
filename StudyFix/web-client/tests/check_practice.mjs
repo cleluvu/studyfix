@@ -27,7 +27,9 @@ globalThis.fetch=async(path,options)=>{
 state.identity={userId:"u",role:"STUDENT",displayName:"User"};state.token="token";state.page="exercises";state.room=null;state.booting=true;state.exerciseMode="practice";
 await loadPageData();check(practice.items.length===2,"practice loads catalog with no room");
 const studentView=renderPractice();state.identity.role="TEACHER";
-check(renderPractice()===studentView,"teacher and student practice render exactly the same interface");
+const teacherView=renderPractice();
+check(teacherView.includes('data-action="practice-create"')&&!studentView.includes('data-action="practice-create"'),"only teachers see catalog creation control");
+check(teacherView.replace(/<div style="margin-bottom:16px"><button[^>]*data-action="practice-create"[^>]*>.*?<\/button><\/div>/,"")===studentView,"practice remains shared except teacher catalog creation control");
 check(!studentView.includes("Bạn cần vào một phòng")&&studentView.includes("Luyện code"),"practice is not gated by classroom membership");
 await openPractice("A");let html=renderPractice();
 check(html.indexOf("Đề bài")<html.indexOf('id="work-code"')&&html.indexOf('id="work-code"')<html.indexOf("Lịch sử nộp"),"workspace is statement, editor, then history vertically");
@@ -59,5 +61,7 @@ check(restoreView()==="exercises"&&!state.room,"refresh restores practice withou
 practice.owner="";await loadPractice();check(practice.exercise?.id==="A","selected exercise restores from tab state");
 state.identity={userId:"other",role:"STUDENT"};await loadPractice();
 check(!practice.exercise&&practice.pending.size===0,"new account cannot inherit old exercise, source or pending requests");
+check(practice.drafts.size===0&&practice.requests.size===0,"account switch clears in-memory drafts and request keys");
+await openPractice("A");check(state.workCode==="// template A","another account opens its own template, never previous user's draft");
 check(!requests.some(r=>["ASSIGN_CREATE","TEACHER_TRIAL_CREATE","JOIN_ROOM"].includes(r.type)),"practice does not synthesize assignments, rooms or teacher trials");
 console.log(`Practice frontend: ${checks} checks PASS (HTTP/DOM mocks, no real browser claim).`);

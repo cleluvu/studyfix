@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { state, rememberView } from "./state.js";
 import { api, assignment } from "./api.js";
@@ -7,14 +7,22 @@ import { render } from "../ui/render.js";
 import { loadClassroom } from "../features/classroom/classroom.js";
 import { pollCall, leaveCall } from "../features/classroom/call.js";
 import { loadChat } from "../features/classroom/chat-notifications.js";
+import {subscribePresence} from "./presence-socket.js";
+import {isAdminPage,canNavigate,homePage} from "./roles.js";
 
-// --- Small dependency-injection hooks -------------------------------------
-// features/auth/auth.js and features/screen-share/screen-share.js both need to
-// be *called* from this module, but this module must not *import* them back
-// (that would create an import cycle, since both of them import from here).
-// They register a callback instead; see the bottom of each of those files.
+// Các hàm đăng ký xử lý để tránh import vòng giữa các module.
+// Cần gọi các hàm trong auth.js và screen-share.js từ module này,
+// nhưng không import ngược hai file đó
+// vì chúng đã import module này, dễ tạo vòng phụ thuộc.
+// Thay vào đó, hai file đăng ký hàm gọi lại ở cuối mỗi file.
 let roomJoinedHandler = null;
+let admissionHandler=null;
+export function setAdmissionHandler(fn){admissionHandler=fn;}
 let practiceHandlers=null;
+let adminHandlers=null;
+let examHandlers=null;
+export function setExamHandlers(handlers){examHandlers=handlers;}
+export function setAdminHandlers(handlers){adminHandlers=handlers;}
 export function setPracticeHandlers(handlers){practiceHandlers=handlers;}
 export function setRoomJoinedHandler(fn) {
   roomJoinedHandler = fn;
@@ -35,6 +43,7 @@ export async function loadCurrentRoom(showErrors = true) {
     const res = await api("/api/rooms/current");
     if(request!==currentRoomRequest||token!==state.token||state.roomLeaving)return state.room;
     const next = res.room;
+    const presenceChanged=JSON.stringify(state.room?.studentConnections)!==JSON.stringify(next.studentConnections);
     const changed =
       !state.room ||
       state.room.version !== next.version ||
@@ -48,6 +57,7 @@ export async function loadCurrentRoom(showErrors = true) {
       state.roomBuffer = next.code;
     state.room = next;
     state.roomId = next.roomId;
+    if(presenceChanged&&state.page==="room"&&state.meetingPanel==="people")render();
     if (changed && state.page === "room" && !state.codeDirty) render();
     return next;
   } catch (e) {
@@ -67,7 +77,7 @@ export async function handleDeletedRoom(id) {
   if (String(state.room?.roomId||state.roomId||"")!==String(id)) return;
   invalidateRoomRequests();
   state.meetingClosed=true;
-  state.room=null;state.roomId="";state.classroom=null;state.page="overview";
+  state.room=null;state.roomId="";state.classroom=null;state.page=homePage(state.identity);
   await leaveCall(false);
   if(screenSignalHandler)await screenSignalHandler({kind:"ROOM_CLOSED"});
   toast("Chủ phòng đã xóa phòng. Bạn đã trở về Tổng quan.","info");
@@ -81,6 +91,7 @@ export async function loadRooms() {
     state.rooms = res.rooms || [];
     state.roomPage=res.page||1;state.roomsTotal=res.total??state.rooms.length;state.roomsTotalPages=res.totalPages||1;
     state.customRoomCodes=res.customRoomCodes===true;state.manualRoomDelete=res.manualRoomDelete===true;state.roomsError="";
+    if(admissionHandler)await admissionHandler(res.admissions||[]);
     return previous!==JSON.stringify([state.rooms,state.roomsTotal,state.roomPage,state.roomsError,state.customRoomCodes]);
   } catch (e) {
     if(request!==roomDirectoryRequest||token!==state.token||search!==(state.roomSearch||""))return false;
@@ -152,6 +163,10 @@ export async function loadContests() {
 
 export async function loadPageData() {
   if (!state.identity) return;
+  if(isAdminPage(state.page)){
+    if(state.identity.role!=="TEACHER"){state.page="overview";return;}
+    if(adminHandlers)await adminHandlers.load();render();return;
+  }
   if(state.page==="exercises"&&state.exerciseMode!=="room") {
     if(practiceHandlers)await practiceHandlers.load();
     render();return;
@@ -182,6 +197,7 @@ export async function loadPageData() {
     await loadContests();
     if (state.identity.role === "TEACHER") await loadCatalog();
   }
+  if(state.page==="room"&&examHandlers)await examHandlers.poll();
   render();
 }
 
@@ -229,6 +245,9 @@ export function startPolling() {
       }
       if (state.activeSubmissionPoll) await pollSubmissionResult();
       const practiceChanged=practiceHandlers?await practiceHandlers.poll():false;
+      if(examHandlers)await examHandlers.poll();
+      const adminChanged=adminHandlers?await adminHandlers.poll():false;
+      if(adminChanged&&isAdminPage(state.page))render();
       if (practiceChanged||roomsChanged || chatChanged || events.length || (state.page === "room" && mustRefresh)) render();
     } catch (e) {
       if (state.token && /Phiên|kết nối/i.test(e.message))
@@ -249,7 +268,7 @@ export function receiveEvent(ev) {
   state.roomEvents = state.roomEvents.slice(0, 30);
   const match = text.match(/^\[Phòng [^\]]+\]\s+([^:]{1,90}):\s*([\s\S]*)$/);
   if (match && !/^Server$/i.test(match[1].trim())) {
-    // Persisted chat IDs/author IDs are synced by loadChat; don't duplicate TCP events.
+    // loadChat đã đồng bộ ID tin nhắn và người gửi, nên không thêm lại từ sự kiện TCP để tránh trùng.
     return;
   } else if (
     /\[Hệ thống\]|\[TEACHER_TAKEOVER\]|\[COMMITTED\]|\[CANCELLED\]|\[SAVE_FAILED\]|Không tìm thấy phòng|Đã tham gia phòng|Đã tạo và tham gia phòng|version=/.test(
@@ -269,9 +288,9 @@ export function receiveEvent(ev) {
         "info",
       );
     if (/Đã tạo và tham gia phòng:|Đã tham gia phòng:/.test(text))
-      // See setRoomJoinedHandler() below: the actual refreshMe()/loadCurrentRoom()/
-      // loadPageData() chain lives in features/auth/auth.js, which registers itself
-      // here instead of being imported directly (avoids polling<->auth cycle).
+      // Sau khi vào phòng, hàm đăng ký bằng setRoomJoinedHandler() sẽ gọi refreshMe(), loadCurrentRoom()
+      // và loadPageData(). Phần xử lý nằm trong auth.js và được đăng ký tại đây
+      // để tránh import vòng giữa polling.js và auth.js.
       setTimeout(() => {
         if (roomJoinedHandler) roomJoinedHandler();
       }, 250);
@@ -285,19 +304,24 @@ export function cleanSystem(text) {
 }
 
 export async function refreshEverything() {
-  await refreshMe();
-  await loadCurrentRoom(false);
-  await loadPageData();
+  if (roomJoinedHandler) await roomJoinedHandler();
+  else {
+    await loadCurrentRoom(false);
+    await loadPageData();
+  }
   render();
 }
 
 export async function navigate(page) {
+  if(page==="admin-attendance")page="admin-connections";
+  if(!canNavigate(state.identity,page))return;
   if(page==="exercises")state.exerciseMode="practice";
-  state.page = page === "room" && !state.room ? "overview" : page;
+  state.page = page === "room" && !state.room ? homePage(state.identity) : page;
   if(state.page==="room")state.meetingClosed=false;
   rememberView();
   if (state.page !== "room") state.roomTab = "code";
   await loadPageData();
+  subscribePresence();
   render();
   document.querySelector(".sidebar")?.classList.remove("open");
   document.querySelector(".mobile-nav-overlay")?.classList.remove("visible");

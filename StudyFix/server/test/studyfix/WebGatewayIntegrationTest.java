@@ -19,7 +19,7 @@ import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
 import java.util.*;
 
-/** Full temporary-database smoke test for the web FE gateway and the existing Java services. */
+/** Kiểm tra nhanh web gateway và các dịch vụ Java bằng database tạm. */
 public final class WebGatewayIntegrationTest {
     private static int checks;
     private static void check(boolean ok, String message) {
@@ -49,7 +49,7 @@ public final class WebGatewayIntegrationTest {
     @SuppressWarnings("unchecked") private static List<Object> list(Object o) { return o instanceof List<?> l ? (List<Object>)l : List.of(); }
     private static Response assign(HttpClient client,String base,String token,String room,String type,Map<String,Object> data) throws Exception {
         Map<String,Object> body=new LinkedHashMap<>(data);body.put("type",type);
-        // roomId is injected from the authenticated current core session by the gateway.
+        // Gateway lấy roomId từ phiên đã đăng nhập hiện tại, không tin giá trị do client tự gửi.
         return request(client,base,"/api/assignments","POST",token,body);
     }
     private static String login(HttpClient client,String base,String username,String password) throws Exception {
@@ -144,9 +144,9 @@ public final class WebGatewayIntegrationTest {
             check(request(client,base,"/api/rooms/current/command","POST",student1,Map.of("action","JOIN_ROOM","roomId",roomId)).status==202,"student1 join command accepted");
             waitFor(()->!str(request(client,base,"/api/me","GET",student1,null).body.get("roomId")).isBlank(),"student1 joins room");
 
-            // Browser screen-sharing signaling is role-neutral, scoped to the current room,
-            // and permits one active presenter at a time. This tests signaling/routing, not
-            // the browser's physical capture device or ICE connectivity.
+            // Giáo viên và sinh viên đều dùng được tín hiệu chia sẻ màn hình trong phòng hiện tại.
+            // Mỗi lần chỉ có một người chia sẻ. Test này kiểm tra tín hiệu và định tuyến,
+            // chưa kiểm tra thiết bị quay màn hình thật hoặc kết nối ICE của trình duyệt.
             String webTeacherPeer=str(request(client,base,"/api/me","GET",teacher,null).body.get("peerId"));
             String webStudentPeer=str(request(client,base,"/api/me","GET",student1,null).body.get("peerId"));
             Response teacherScreenStart=request(client,base,"/api/screen/signal","POST",teacher,

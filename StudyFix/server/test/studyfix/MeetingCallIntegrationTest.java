@@ -6,7 +6,7 @@ import java.util.*;
 import static studyfix.ClassroomIntegrationTest.*;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Real HTTP room isolation and signaling tests; does not claim real camera/audio media E2E. */
+/** Test HTTP thật để kiểm tra tín hiệu và tách biệt phòng; chưa kiểm tra camera và âm thanh từ đầu đến cuối. */
 public final class MeetingCallIntegrationTest {
     static Response send(String base,String token,String kind,Map<String,Object> fields)throws Exception {
         Map<String,Object> body=new LinkedHashMap<>(fields);body.put("kind",kind);return call(base,"/api/call/signal",token,body);

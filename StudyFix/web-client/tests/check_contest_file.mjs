@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+globalThis.sessionStorage={getItem:()=>null,setItem(){}};
+globalThis.setTimeout=()=>0;
+const root={innerHTML:""};globalThis.document={title:"",activeElement:null,querySelector:s=>s==="#app"?root:{appendChild(){}},getElementById:()=>null,querySelectorAll:()=>[],addEventListener(){},createElement:()=>({remove(){}})};
+const {state}=await import("../static/core/state.js");
+const {submitContestFile}=await import("../static/features/contests/contests.js");
+const sent=[];globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);sent.push(body);return {ok:true,json:async()=>({status:"OK",data:{submission:{id:"receipt",status:"QUEUED"}}})};};
+const work={contestId:"contest",problem:{id:"ARR001"}};
+Object.assign(state,{booting:true,identity:{role:"STUDENT"},token:"token",room:{roomId:"room"},page:"contests",contestWork:work,contestDetail:{contest:{startAt:Date.now()-10000,endAt:Date.now()+60000}},contestCode:"previous"});
+const file=(name,code,size=code.length)=>({name,size,text:async()=>code});
+await submitContestFile(file("Main.java","public class Main {}"));
+assert.equal(sent.length,1);assert.equal(sent[0].type,"CONTEST_SUBMIT");assert.equal(sent[0].sourceCode,"public class Main {}");assert.equal(state.contestWork.result.id,"receipt");
+for(const bad of [file("Main.zip","x"),file("Main.java"," "),file("Main.java","a",32769),file("Main.txt","a\u0000"),file("Main.txt","a".repeat(32769),1)])await assert.rejects(()=>submitContestFile(bad));
+assert.equal(sent.length,1,"invalid files never reach judge");
+let complete;const pending=submitContestFile({name:"Main.java",size:3,text:()=>new Promise(r=>complete=r)});state.contestWork={...work};complete("abc");await assert.rejects(()=>pending);assert.equal(sent.length,1,"late file cannot submit into another problem");
+state.contestWork=work;state.contestDetail.contest.endAt=Date.now()-1;await assert.rejects(()=>submitContestFile(file("Main.java","code")));assert.equal(sent.length,1);
+console.log("Contest file PASS: same judging API, invalid/empty/oversize/binary files rejected, stale context and expiry guarded.");

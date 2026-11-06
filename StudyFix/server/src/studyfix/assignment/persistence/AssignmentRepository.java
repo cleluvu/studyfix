@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.util.*;
 
-/** Dedicated learning database. This repository never opens or migrates the core Store database. */
+/** Quản lý database học tập riêng, không mở hay đổi cấu trúc database chính của Store. */
 public final class AssignmentRepository {
     private final String url;
 
@@ -23,10 +23,10 @@ public final class AssignmentRepository {
         Path parent = db.toAbsolutePath().getParent();
         if (parent != null) Files.createDirectories(parent);
         url = "jdbc:sqlite:" + db.toAbsolutePath();
-        try (Connection c = open()) { createSchema(c); }
+        try (Connection c = open()) { createSchema(c); ContestDistributionRepository.init(c); }
     }
 
-    private Connection open() throws SQLException {
+    Connection open() throws SQLException {
         Connection c = DriverManager.getConnection(url);
         try (Statement s = c.createStatement()) {
             s.execute("PRAGMA foreign_keys=ON");
@@ -52,8 +52,8 @@ public final class AssignmentRepository {
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_teacher_trial_test_results(id INTEGER PRIMARY KEY AUTOINCREMENT,trial_id TEXT NOT NULL REFERENCES p3_teacher_trials(id) ON DELETE CASCADE,ordinal_no INTEGER NOT NULL,hidden INTEGER NOT NULL,passed INTEGER NOT NULL,message TEXT NOT NULL,duration_ms INTEGER NOT NULL)");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_test_results(id INTEGER PRIMARY KEY AUTOINCREMENT,submission_id TEXT NOT NULL REFERENCES p3_submissions(id) ON DELETE CASCADE,ordinal_no INTEGER NOT NULL,hidden INTEGER NOT NULL,passed INTEGER NOT NULL,message TEXT NOT NULL,duration_ms INTEGER NOT NULL)");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_contests(id TEXT PRIMARY KEY,room_id TEXT NOT NULL,title TEXT NOT NULL,created_by_user_id TEXT NOT NULL,created_at INTEGER NOT NULL,start_at INTEGER NOT NULL,end_at INTEGER NOT NULL,status TEXT NOT NULL,scoring_rule_version TEXT NOT NULL,contest_type TEXT NOT NULL DEFAULT 'INDIVIDUAL')");
-            // New schema attaches contest problems directly to catalog exercise IDs. Existing v3
-            // databases are migrated below without deleting their assignment associations.
+            // Cấu trúc mới gắn câu hỏi cuộc thi trực tiếp với ID trong ngân hàng đề. Database v3 cũ
+            // được nâng cấp bên dưới và vẫn giữ liên kết với bài đã giao.
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_contest_problems(contest_id TEXT NOT NULL REFERENCES p3_contests(id) ON DELETE CASCADE,problem_id TEXT NOT NULL,exercise_id TEXT NOT NULL REFERENCES p3_exercises(id),assignment_id TEXT REFERENCES p3_assignments(id),mode TEXT NOT NULL DEFAULT 'BUILD_FROM_SCRATCH',max_score REAL NOT NULL,title_snapshot TEXT NOT NULL DEFAULT '',statement_snapshot TEXT NOT NULL DEFAULT '',catalog_version INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(contest_id,problem_id))");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_contest_submissions(contest_id TEXT NOT NULL REFERENCES p3_contests(id) ON DELETE CASCADE,submission_id TEXT NOT NULL REFERENCES p3_submissions(id) ON DELETE CASCADE,PRIMARY KEY(contest_id,submission_id))");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_shared_check_runs(" +
@@ -64,7 +64,7 @@ public final class AssignmentRepository {
                     "passed_tests INTEGER NOT NULL DEFAULT 0,total_tests INTEGER NOT NULL DEFAULT 0,feedback TEXT NOT NULL DEFAULT '',duration_ms INTEGER NOT NULL DEFAULT 0)");
             s.executeUpdate("CREATE INDEX IF NOT EXISTS p3_shared_check_assignment_idx ON p3_shared_check_runs(assignment_id,room_id,created_at)");
         }
-        // Additive/versioned migration isolated to the learning database; core Store is untouched.
+        // Nâng cấp theo phiên bản, chỉ thêm cấu trúc trong database học tập, giữ nguyên database chính của Store.
         ensureColumn(c, "p3_submissions", "submission_mode", "TEXT NOT NULL DEFAULT 'PERSONAL'");
         ensureColumn(c, "p3_exercises", "mode", "TEXT NOT NULL DEFAULT 'BUILD_FROM_SCRATCH'");
         ensureColumn(c, "p3_exercises", "starter_code", "TEXT NOT NULL DEFAULT ''");
@@ -124,12 +124,20 @@ public final class AssignmentRepository {
     }
 
     public void seed(List<Exercise> exercises) throws SQLException {
+        persistExercises(exercises, false);
+    }
+
+    public void createExercise(Exercise exercise) throws SQLException {
+        persistExercises(List.of(exercise), true);
+    }
+
+    private void persistExercises(List<Exercise> exercises, boolean strict) throws SQLException {
         try (Connection c = open()) {
             c.setAutoCommit(false);
             try {
                 for (Exercise e : exercises) {
                     boolean inserted;
-                    String sql = "INSERT OR IGNORE INTO p3_exercises(id,title,topic,difficulty,statement,input_format,output_format,constraints_text,template,hints,reference_solution,catalog_version,created_at,mode,starter_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    String sql = (strict ? "INSERT" : "INSERT OR IGNORE") + " INTO p3_exercises(id,title,topic,difficulty,statement,input_format,output_format,constraints_text,template,hints,reference_solution,catalog_version,created_at,mode,starter_code) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
                     try (PreparedStatement p = c.prepareStatement(sql)) {
                         int i = 1;
                         p.setString(i++, e.id()); p.setString(i++, e.title()); p.setString(i++, e.topic());
@@ -193,7 +201,7 @@ public final class AssignmentRepository {
         }
     }
 
-    /** Latest room-scoped DEBUG_COLLAB starter previously assigned to this room, if any. */
+    /** Lấy code mẫu DEBUG_COLLAB mới nhất đã giao cho phòng này, nếu có. */
     public String latestRoomDebugStarterCode(String roomId) throws SQLException {
         String sql = "SELECT e.starter_code FROM p3_assignments a JOIN p3_exercises e ON e.id=a.exercise_id "
                 + "WHERE a.room_id=? AND a.scope='ROOM' AND a.mode='DEBUG_COLLAB' "
@@ -204,13 +212,13 @@ public final class AssignmentRepository {
         }
     }
 
-    /** A recipient snapshot row records who was assigned a room task at assignment time. */
+    /** Mỗi dòng ghi lại một người nhận bài tại thời điểm giao bài cho phòng. */
     public record AssignmentRecipient(String userId, String username, String displayName) { }
 
-    /** Legacy compatibility path; old records without snapshots retain the historic fallback. */
+    /** Hỗ trợ dữ liệu cũ: bản ghi chưa có danh sách người nhận vẫn dùng cách tra trước đây. */
     public AssignmentRecord createAssignment(AssignmentRecord a) throws SQLException { return createAssignment(a, null); }
 
-    /** Creates the assignment and its recipient snapshot atomically. A non-null empty list is an intentional empty snapshot. */
+    /** Tạo bài giao và lưu danh sách người nhận trong cùng giao dịch. Danh sách rỗng khác null nghĩa là cố ý không có người nhận. */
     public AssignmentRecord createAssignment(AssignmentRecord a, List<AssignmentRecipient> recipients) throws SQLException {
         String sql = "INSERT INTO p3_assignments(id,exercise_id,room_id,created_by_user_id,scope,target_user_id,target_username,created_at,deadline_at,status,mode) VALUES(?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection c = open()) {
@@ -271,7 +279,7 @@ public final class AssignmentRepository {
     private SubmissionRecord submission(ResultSet r)throws SQLException{return new SubmissionRecord(r.getString("id"),r.getString("assignment_id"),r.getString("room_id"),r.getString("user_id"),r.getString("username"),r.getString("source_code"),r.getLong("submitted_at"),r.getString("status"),r.getDouble("score"),r.getDouble("max_score"),r.getString("verdict"),r.getInt("passed_tests"),r.getInt("total_tests"),r.getString("feedback"),r.getLong("duration_ms"),r.getString("submission_mode"),r.getString("idempotency_key"));}
     public SubmissionRecord getSubmission(String id)throws SQLException{try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT * FROM p3_submissions WHERE id=?")){p.setString(1,id);try(ResultSet r=p.executeQuery()){return r.next()?submission(r):null;}}}
     public List<SubmissionRecord> listSubmissions(String assignment,String user,boolean teacher)throws SQLException{String q=teacher?"SELECT * FROM p3_submissions WHERE assignment_id=? ORDER BY submitted_at DESC":"SELECT * FROM p3_submissions WHERE assignment_id=? AND user_id=? ORDER BY submitted_at DESC";try(Connection c=open();PreparedStatement p=c.prepareStatement(q)){p.setString(1,assignment);if(!teacher)p.setString(2,user);try(ResultSet r=p.executeQuery()){List<SubmissionRecord>out=new ArrayList<>();while(r.next())out.add(submission(r));return out;}}}
-    /** True only after this user has a completed accepted submission for this exact assignment. */
+    /** Chỉ trả true khi chính người dùng này đã có bài nộp chấm xong và đạt cho đúng bài được giao. */
     public boolean hasAcceptedSubmission(String assignmentId, String userId) throws SQLException {
         String sql = "SELECT 1 FROM p3_submissions WHERE assignment_id=? AND user_id=? AND status='DONE' AND upper(verdict) IN ('AC','ACCEPTED','PASS') LIMIT 1";
         try (Connection c=open(); PreparedStatement p=c.prepareStatement(sql)) {
@@ -279,7 +287,7 @@ public final class AssignmentRepository {
             try (ResultSet r=p.executeQuery()) { return r.next(); }
         }
     }
-    /** True only for this user and this contest problem; never leaks another participant's verdict. */
+    /** Chỉ xét kết quả của người dùng này cho đúng câu hỏi cuộc thi, không lộ kết quả của người khác. */
     public boolean hasAcceptedContestSubmission(String contestId, String exerciseId, String userId) throws SQLException {
         String sql = "SELECT 1 FROM p3_contest_problem_submissions WHERE contest_id=? AND exercise_id=? AND user_id=? AND status='DONE' AND upper(verdict) IN ('AC','ACCEPTED','PASS') LIMIT 1";
         try (Connection c=open(); PreparedStatement p=c.prepareStatement(sql)) {
@@ -394,7 +402,7 @@ public final class AssignmentRepository {
         return new SharedCheckRun(r.getString("id"),r.getString("request_key"),r.getString("assignment_id"),r.getString("room_id"),r.getLong("checked_version"),r.getString("source_hash"),r.getString("source_code"),r.getString("requested_by_user_id"),r.getString("requested_by_username"),r.getLong("created_at"),r.getString("status"),r.getString("verdict"),r.getDouble("score"),r.getDouble("max_score"),r.getInt("passed_tests"),r.getInt("total_tests"),r.getString("feedback"),r.getLong("duration_ms"));
     }
 
-    /** Compatibility entry point for old clients: preserve the old assignment-based contest model. */
+    /** Hỗ trợ client cũ với kiểu cuộc thi lấy câu hỏi từ bài đã giao. */
     public String createContest(String id,String room,String title,String owner,long now,long start,long end,List<String> assignmentIds)throws SQLException{
         List<ContestProblemSeed> problems = new ArrayList<>();
         for (String assignmentId : assignmentIds) {
@@ -409,9 +417,13 @@ public final class AssignmentRepository {
                 "BEST_SCORE_EARLIEST_ACHIEVED_V1", problems);
     }
 
-    /** Creates a new contest directly from exercise-bank IDs; no assignment must exist first. */
+    /** Tạo cuộc thi trực tiếp từ ID trong ngân hàng đề, không cần giao bài trước. */
     public String createContestFromExercises(String id,String room,String title,String owner,long now,long start,long end,
                                              String contestType,List<String> exerciseIds)throws SQLException{
+        return createContestFromExercises(id,room,title,owner,now,start,end,contestType,exerciseIds,"ALL",0);
+    }
+    public String createContestFromExercises(String id,String room,String title,String owner,long now,long start,long end,String contestType,List<String> exerciseIds,String distribution,int count)throws SQLException{
+        if(!Set.of("ALL","RANDOM").contains(distribution)||("RANDOM".equals(distribution)&&(count<1||count>exerciseIds.size())))throw new SQLException("Invalid distribution policy");
         List<ContestProblemSeed> problems = new ArrayList<>();
         for (String exerciseId : exerciseIds) {
             Exercise exercise = getExercise(exerciseId);
@@ -420,11 +432,14 @@ public final class AssignmentRepository {
                     100, exercise.title(), exercise.statement(), 1));
         }
         return createContestRows(id, room, title, owner, now, start, end, contestType,
-                "AC_COUNT_SCORE_TIME_V2", problems);
+                "AC_COUNT_SCORE_TIME_V2", problems,distribution,count);
     }
 
     private String createContestRows(String id,String room,String title,String owner,long now,long start,long end,
                                      String contestType,String scoringRule,List<ContestProblemSeed> problems)throws SQLException{
+        return createContestRows(id,room,title,owner,now,start,end,contestType,scoringRule,problems,"ALL",0);
+    }
+    private String createContestRows(String id,String room,String title,String owner,long now,long start,long end,String contestType,String scoringRule,List<ContestProblemSeed> problems,String distribution,int count)throws SQLException{
         if (problems.isEmpty()) throw new SQLException("Kỳ thi phải có ít nhất một bài.");
         try(Connection c=open()){
             c.setAutoCommit(false);
@@ -442,6 +457,7 @@ public final class AssignmentRepository {
                     }
                     p.executeBatch();
                 }
+                ContestDistributionRepository.policy(c,id,distribution,count);
                 c.commit();return id;
             }catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;throw new SQLException(e);}
         }
@@ -453,19 +469,19 @@ public final class AssignmentRepository {
         try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT id,title,start_at,end_at,status,scoring_rule_version,contest_type,(SELECT COUNT(*) FROM p3_contest_problems cp WHERE cp.contest_id=p3_contests.id) FROM p3_contests WHERE room_id=? ORDER BY created_at DESC")){
             p.setString(1,room);try(ResultSet r=p.executeQuery()){List<Map<String,Object>>out=new ArrayList<>();while(r.next()){
                 long now=System.currentTimeMillis();String st=now>=r.getLong(4)?"CLOSED":now>=r.getLong(3)?"RUNNING":"SCHEDULED";
-                out.add(Map.of("id",r.getString(1),"title",r.getString(2),"startAt",r.getLong(3),"endAt",r.getLong(4),"status",st,
-                        "scoringRule",r.getString(6),"contestType",r.getString(7),"problemCount",r.getInt(8)));
+                Map<String,Object> item=new LinkedHashMap<>(Map.of("id",r.getString(1),"title",r.getString(2),"startAt",r.getLong(3),"endAt",r.getLong(4),"status",st,
+                        "scoringRule",r.getString(6),"contestType",r.getString(7),"problemCount",r.getInt(8)));item.putAll(ContestDistributionRepository.config(c,r.getString(1)));out.add(item);
             }return out;}
         }
     }
     public Map<String,Object> contest(String id)throws SQLException{
         try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT id,room_id,title,created_by_user_id,start_at,end_at,status,scoring_rule_version,contest_type FROM p3_contests WHERE id=?")){
             p.setString(1,id);try(ResultSet r=p.executeQuery()){if(!r.next())return null;long now=System.currentTimeMillis(),start=r.getLong(5),end=r.getLong(6);
-                return Map.of("id",r.getString(1),"roomId",r.getString(2),"title",r.getString(3),"owner",r.getString(4),"startAt",start,"endAt",end,
-                        "status",now<start?"SCHEDULED":now>=end?"CLOSED":"RUNNING","scoringRule",r.getString(8),"contestType",r.getString(9));}
+                Map<String,Object> result=new LinkedHashMap<>(Map.of("id",r.getString(1),"roomId",r.getString(2),"title",r.getString(3),"owner",r.getString(4),"startAt",start,"endAt",end,
+                        "status",now<start?"SCHEDULED":now>=end?"CLOSED":"RUNNING","scoringRule",r.getString(8),"contestType",r.getString(9)));result.putAll(ContestDistributionRepository.config(c,id));return result;}
         }
     }
-    /** Assignment IDs are returned only for legacy contest submissions tied to existing assignments. */
+    /** Chỉ trả ID bài giao cho bài nộp cuộc thi cũ còn gắn với bài đã giao. */
     public List<String> contestAssignments(String contestId)throws SQLException{
         try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT assignment_id FROM p3_contest_problems WHERE contest_id=? AND assignment_id IS NOT NULL ORDER BY rowid")){
             p.setString(1,contestId);try(ResultSet r=p.executeQuery()){List<String>out=new ArrayList<>();while(r.next())out.add(r.getString(1));return out;}
@@ -579,7 +595,7 @@ public final class AssignmentRepository {
         });
         for(int i=0;i<out.size();i++){Map<String,Object> m=new LinkedHashMap<>(out.get(i));m.put("rank",i+1);out.set(i,m);}return out;
     }
-    /** Keep the historical v1 board semantics for already-created contests. */
+    /** Giữ cách tính bảng xếp hạng v1 cho những cuộc thi đã tạo trước đây. */
     private List<Map<String,Object>> legacyLeaderboard(String contestId)throws SQLException{
         Map<String,Double> scores=new HashMap<>();Map<String,String> names=new HashMap<>();Map<String,Long> achieved=new HashMap<>();
         String sql="SELECT s.user_id,s.username,s.assignment_id,s.score,s.submitted_at FROM p3_contest_submissions cs JOIN p3_submissions s ON s.id=cs.submission_id WHERE cs.contest_id=? AND s.status='DONE' ORDER BY s.user_id,s.assignment_id,s.score DESC,s.submitted_at ASC";

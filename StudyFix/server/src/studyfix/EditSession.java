@@ -3,8 +3,8 @@ package studyfix;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/** One draft, indexed against the immutable code at the start of the turn.
- * Owned by Room's monitor; never exposed to clients as a mutable object. */
+/** Một bản nháp dùng số dòng của bản code gốc lúc bắt đầu lượt sửa.
+ * Room giữ khóa khi xử lý bản nháp; client không được trực tiếp thay đổi đối tượng này. */
 public final class EditSession {
     private enum Kind { REPLACE, DELETE, KEEP }
     private record Change(Kind kind, String text) { }
@@ -77,7 +77,7 @@ public final class EditSession {
     }
     private String replacement(Change change, String oldEnding) {
         if (change.kind() == Kind.DELETE) return "";
-        // Keep the boundary before the next original line; do not join two statements.
+        // Giữ ký tự ngăn cách trước dòng gốc tiếp theo để không nối nhầm hai câu lệnh.
         String text = change.text();
         return !oldEnding.isEmpty() && endingOf(text).isEmpty() ? text + oldEnding : text;
     }

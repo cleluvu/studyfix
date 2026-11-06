@@ -20,3 +20,12 @@
 *.key
 Thumbs.db
 .DS_Store
+
+# Additional generated output and local certificate stores
+**/build-launcher/
+**/.build/
+*.sqlite
+*.sqlite3
+*.p12
+*.pfx
+*.jks

@@ -4,7 +4,7 @@ import studyfix.assignment.model.Exercise;
 import studyfix.assignment.model.ExerciseMode;
 import java.util.*;
 
-/** Curated starter catalogue; reference solutions and hidden tests never leave the server. */
+/** Danh sách bài tập mẫu. Lời giải tham khảo và test ẩn chỉ được giữ ở server. */
 public final class SeedExerciseCatalog {
  private SeedExerciseCatalog(){}
  private static Exercise.TestCase t(String in,String out,int weight,boolean hidden){return new Exercise.TestCase(in,out,weight,hidden);}

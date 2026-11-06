@@ -1,6 +1,6 @@
 package studyfix.assignment.model;
 
-/** A contest submission is attached to a catalog exercise, not to an ordinary assignment. */
+/** Bài nộp cuộc thi gắn với bài trong ngân hàng đề, không gắn với bài giao thông thường. */
 public record ContestSubmissionRecord(
         String id,
         String contestId,

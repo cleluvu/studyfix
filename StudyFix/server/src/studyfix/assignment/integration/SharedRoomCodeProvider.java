@@ -1,6 +1,6 @@
 package studyfix.assignment.integration;
 
-/** Narrow read-only bridge to the authoritative shared-code state in the StudyFix core. */
+/** Cho module bài tập đọc trạng thái code chung do phần lõi StudyFix quản lý. */
 public interface SharedRoomCodeProvider {
     record Snapshot(String roomId, String source, long version, boolean draftActive,
                     boolean editTurnActive) {}

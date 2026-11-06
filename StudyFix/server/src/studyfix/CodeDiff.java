@@ -2,14 +2,14 @@ package studyfix;
 
 import java.util.*;
 
-/** Exact line endings; bounded LCS/Myers after stripping common prefix and suffix. */
+/** Giữ nguyên ký tự xuống dòng. Bỏ phần đầu và cuối giống nhau rồi tìm khác biệt bằng LCS/Myers với giới hạn xử lý. */
 public final class CodeDiff {
     public static final String INITIAL = "Code khởi tạo (bản 0).";
     public static final String MISSING = "Không đủ dữ liệu đối chiếu: thiếu phiên bản trước.";
     private static final int MAX_CELLS = 1_000_000;
     private CodeDiff() { }
 
-    /** Render the stored, exact diff without changing its persistence format. */
+    /** Hiển thị đúng phần khác biệt đã lưu, giữ nguyên định dạng lưu trữ. */
     public static String display(String changes) {
         if (!changes.startsWith("Số dòng - theo bản trước, + theo bản sau;")) {
             return changes;
@@ -32,7 +32,7 @@ public final class CodeDiff {
                         match.group(3), match.group(4));
                 (match.group(1).equals("-") ? removed : added).add(line);
             } else if (!row.isEmpty() && !row.startsWith("Số dòng - theo bản trước,")) {
-                // Keep an unknown stored format intact rather than hide its contents.
+                // Nếu gặp định dạng chưa hỗ trợ thì hiển thị nguyên nội dung đã lưu.
                 return changes;
             }
         }
@@ -44,8 +44,8 @@ public final class CodeDiff {
 
     private static void appendChanges(StringBuilder out, List<ChangedLine> removed,
                                       List<ChangedLine> added) {
-        // A contiguous replacement block has no semantic mapping between its lines.
-        // Only label an individual replacement when exactly one line changes on each side.
+        // Không thể tự ghép từng dòng cũ với dòng mới trong một đoạn bị thay toàn bộ.
+        // Chỉ đánh dấu thay một dòng khi cả bên cũ và bên mới đều có đúng một dòng thay đổi.
         if (removed.size() == 1 && added.size() == 1) {
             ChangedLine before = removed.get(0), after = added.get(0);
             if (before.text().equals(after.text())) {
@@ -99,14 +99,14 @@ public final class CodeDiff {
     private static void row(StringBuilder out, char sign, int line, String text) {
         out.append(sign).append(" [").append(line).append("] ").append(visible(text)).append('\n');
     }
-    /** Myers for large, sparsely edited regions. Null means the fixed budget was exhausted. */
+    /** Dùng Myers cho đoạn code lớn nhưng ít thay đổi. Trả về null nếu vượt giới hạn xử lý. */
     private static List<Character> sparse(List<String> a, List<String> b, int start, int n, int m) {
         int max = n + m, offset = max + 1, width = 2 * max + 3;
         int[] v = new int[width];
         List<int[]> trace = new ArrayList<>();
         int work = 0;
         for (int d=0; d<=max; d++) {
-            // At most 4 million trace ints (~16 MB), independent of line counts/product.
+            // Chỉ lưu tối đa 4 triệu số nguyên để truy vết, khoảng 16 MB, dù số dòng lớn đến đâu.
             if ((long)(trace.size()+1)*width > 4_000_000) return null;
             for (int k=-d; k<=d; k+=2) {
                 if (++work > 2_000_000) return null;

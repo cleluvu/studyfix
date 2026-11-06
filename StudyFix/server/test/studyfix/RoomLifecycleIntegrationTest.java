@@ -8,7 +8,7 @@ import java.util.concurrent.Callable;
 import static studyfix.ClassroomIntegrationTest.*;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Custom codes, fixed pagination and explicit owner-authorized deletion. */
+/** Kiểm tra mã phòng tự chọn, phân trang cố định và chỉ chủ phòng được chủ động xóa phòng. */
 public final class RoomLifecycleIntegrationTest {
     static void until(Callable<Boolean> condition,int seconds)throws Exception {
         long end=System.nanoTime()+seconds*1_000_000_000L;

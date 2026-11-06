@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.*;
 
 public class Client {
-    /** Never hold this monitor while waiting for the socket or keyboard. */
+    /** Không giữ khóa này trong lúc chờ dữ liệu từ socket hoặc bàn phím. */
     private static final class ConsoleOutput {
         private final PrintStream out;
         private final java.util.Deque<String> pending = new java.util.ArrayDeque<>();

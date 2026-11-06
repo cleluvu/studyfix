@@ -1,6 +1,6 @@
 package studyfix.assignment.model;
 
-/** Persisted group check; source is server-side only and is never included in its public view. */
+/** Lưu kết quả chấm code chung. Code chỉ giữ ở server, không đưa vào dữ liệu công khai. */
 public record SharedCheckRun(String id, String requestKey, String assignmentId, String roomId,
                              long checkedVersion, String sourceHash, String source,
                              String requestedByUserId, String requestedByUsername,

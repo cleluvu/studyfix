@@ -1,17 +1,18 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { state } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { startPolling, stopPolling, loadCurrentRoom, loadPageData, setRoomJoinedHandler } from "../../core/polling.js";
 import { render } from "../../ui/render.js";
-import { toast } from "../../ui/toast.js";
+import { toast,clearJoinRequestNotifications } from "../../ui/toast.js";
 import { stopScreenShare } from "../screen-share/screen-share.js";
 import { leaveCall } from "../classroom/call.js";
 import { resetChatNotifications } from "../classroom/chat-notifications.js";
+import {startPresenceSocket,stopPresenceSocket} from "../../core/presence-socket.js";
 
-// Wiring for core/api.js (401 -> logout) and core/polling.js (post-join
-// refresh) — see the comments in those files for why this is a registered
-// callback instead of a direct import.
+// Đăng ký hàm xử lý cho api.js khi gặp lỗi 401 và cho polling.js
+// khi cần tải lại dữ liệu sau lúc vào phòng. Dùng hàm gọi lại
+// để tránh các file import vòng lẫn nhau.
 document.addEventListener("studyfix:unauthorized", () => {
   logout(false);
 });
@@ -25,11 +26,12 @@ setRoomJoinedHandler(() => {
 export async function login(username, password) {
   const res = await api("/api/auth/login", {
     method: "POST",
-    body: { username, password },
+    body: { studentCode: username, password },
   });
   state.token = res.token;
   state.peerId = res.peerId;
   state.identity = res.identity;
+  state.page=state.identity.role==="TEACHER"?"admin":"overview";
   state.exerciseMode="practice";
   state.meetingClosed=true;
   state.roomId = res.roomId || "";
@@ -38,13 +40,15 @@ export async function login(username, password) {
   startPolling();
   await loadCurrentRoom(false);
   await loadPageData();
-  state.page = "overview";
+  state.page = state.identity.role==="TEACHER"?"admin":"overview";
   state.booting = false;
   render();
   toast(`Xin chào ${state.identity.displayName}!`, "success");
 }
 
 export async function logout(showToast = true) {
+  clearJoinRequestNotifications();
+  stopPresenceSocket();
   await leaveCall(false);
   const token = state.token;
   stopScreenShare(false);
@@ -57,6 +61,7 @@ export async function logout(showToast = true) {
   state.classroomDrafts = {};
   state.meetingView = "";state.meetingPanel="";state.callRoster=[];
   state.roomId = "";
+  state.pendingAdmission=null;
   state.assignments = [];
   state.catalog = [];
   state.chatItems = [];
@@ -81,4 +86,5 @@ export async function refreshMe() {
   state.identity = res.identity;
   state.peerId = res.peerId;
   state.roomId = res.roomId || "";
+  startPresenceSocket(res.webSocket);
 }

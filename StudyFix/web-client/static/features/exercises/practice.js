@@ -8,9 +8,23 @@ import {cryptoRandomId} from "../../shared/crypto.js";
 import {toast} from "../../ui/toast.js";
 import {modal} from "../../ui/modal.js";
 import {renderSubmissionResult} from "./exercises.js";
+import {openCatalogCreate} from "./catalog-create.js";
 
 export const practice={owner:"",items:[],topics:[],stats:{},query:"",topic:"",difficulty:"",mode:"",filterStatus:"",page:1,total:0,pages:1,exercise:null,history:[],historyPage:1,historyPages:1,historyTotal:0,result:null,resultId:"",pending:new Map(),drafts:new Map(),requests:new Map(),error:"",busy:false,initialized:false};
 let listRequest=0,openRequest=0,historyRequest=0;
+let filterTimer=null;
+const filterSignature=()=>JSON.stringify([practice.query,practice.topic,practice.difficulty,practice.mode,practice.filterStatus]);
+function cancelPracticeSearch(){clearTimeout(filterTimer);filterTimer=null;}
+function queuePracticeSearch(){
+  cancelPracticeSearch();
+  if(!active()||practice.exercise)return;
+  const token=state.token,owner=state.identity?.userId,filters=filterSignature();
+  const current=()=>state.token===token&&state.identity?.userId===owner&&active()&&!practice.exercise&&filterSignature()===filters;
+  filterTimer=setTimeout(async()=>{
+    filterTimer=null;if(!current())return;
+    practice.page=1;await loadPracticeList();if(current())renderPracticeSearchResults();
+  },250);
+}
 const active=()=>state.page==="exercises"&&state.exerciseMode!=="room";
 const storageKey=suffix=>`studyfix.practice.${state.identity?.userId}.${suffix}`;
 function read(key){try{return JSON.parse(localStorage.getItem(key)||"null");}catch(_){return null;}}
@@ -20,8 +34,9 @@ function selection(id){try{sessionStorage.setItem(storageKey("selection"),id||""
 function savedSelection(){try{return sessionStorage.getItem(storageKey("selection"))||"";}catch(_){return "";}}
 function scope(){
   if(practice.owner===state.identity?.userId)return;
+  cancelPracticeSearch();
   ++listRequest;++openRequest;++historyRequest;
-  Object.assign(practice,{owner:state.identity?.userId||"",items:[],topics:[],stats:{},query:"",topic:"",difficulty:"",mode:"",filterStatus:"",page:1,total:0,pages:1,exercise:null,history:[],historyPage:1,historyPages:1,historyTotal:0,result:null,resultId:"",pending:new Map(),error:"",busy:false,initialized:false});
+  Object.assign(practice,{owner:state.identity?.userId||"",items:[],topics:[],stats:{},query:"",topic:"",difficulty:"",mode:"",filterStatus:"",page:1,total:0,pages:1,exercise:null,history:[],historyPage:1,historyPages:1,historyTotal:0,result:null,resultId:"",pending:new Map(),drafts:new Map(),requests:new Map(),error:"",busy:false,initialized:false});
   state.workCode="";state.workCodeDirty=false;
 }
 export function savePracticeDraft(){if(active()&&practice.exercise&&practice.owner===state.identity?.userId){const draft={code:state.workCode};practice.drafts.set(practice.exercise.id,draft);write(storageKey(`draft.${practice.exercise.id}`),draft);}}
@@ -76,7 +91,7 @@ export async function submitPractice(run=false){
   const source=state.workCode;if(!source.trim())throw new Error("Code không được để trống.");
   if(new TextEncoder().encode(source).length>32000)throw new Error("Code tối đa 32.000 byte.");
   const exerciseId=practice.exercise.id,owner=practice.owner;
-  // Persist the request key before sending: retrying an uncertain request must not duplicate a version.
+  // Lưu mã yêu cầu trước khi gửi để khi gửi lại không tạo trùng phiên bản bài nộp.
   const requestKey=storageKey(`request.${exerciseId}.${run?"run":"submit"}`),saved=practice.requests.get(requestKey)||read(requestKey);
   const key=saved?.source===source?saved.key:cryptoRandomId();practice.requests.set(requestKey,{source,key});write(requestKey,{source,key});
   practice.busy=true;savePracticeDraft();render();
@@ -106,7 +121,9 @@ export async function pollPractice(){
   return changed&&active();
 }
 export async function practiceClick(action,d){
+  cancelPracticeSearch();
   switch(action){
+    case "practice-create":if(state.identity?.role==="TEACHER")openCatalogCreate(async id=>{practice.query=id;practice.topic="";practice.difficulty="";practice.mode="";practice.filterStatus="";practice.page=1;await loadPracticeList();render();});break;
     case "practice-open":await openPractice(d.id);break;
     case "practice-back":savePracticeDraft();++openRequest;practice.exercise=null;practice.result=null;selection("");await loadPracticeList();render();break;
     case "practice-filter":practice.page=1;await loadPracticeList();render();break;
@@ -123,18 +140,28 @@ export async function practiceClick(action,d){
     }
   }
 }
-export function practiceInput(el){
+export function practiceInput(el,composing=false){
   const fields={"practice-query":"query","practice-topic":"topic","practice-difficulty":"difficulty","practice-mode":"mode","practice-status":"filterStatus"};
-  if(fields[el.id]){practice[fields[el.id]]=el.value;++listRequest;}
+  if(fields[el.id]){practice[fields[el.id]]=el.value;++listRequest;cancelPracticeSearch();if(el.id==="practice-query"||!composing)queuePracticeSearch();}
   if(el.id==="work-code")savePracticeDraft();
 }
 function options(values,current){return values.map(v=>`<option value="${esc(v)}" ${v===current?"selected":""}>${esc(v)}</option>`).join("");}
 function pagination(page,pages,total,action){return `<div class="room-pagination">${btn("← Trước",action,"btn-soft btn-sm",`data-page="${page-1}" ${page<=1?"disabled":""}`)}<span>Trang ${page}/${pages} · ${total} ${action==="practice-page"?"bài":"phiên bản"}</span>${btn("Sau →",action,"btn-soft btn-sm",`data-page="${page+1}" ${page>=pages?"disabled":""}`)}</div>`;}
+function renderPracticeRows(){return practice.items.map(e=>`<tr class="practice-row ${e.practiceStatus==="AC"?"practice-ac":e.practiceStatus==="FAILED"?"practice-failed":""}" data-action="practice-open" data-id="${esc(e.id)}"><td class="mono">${esc(e.id)}</td><td><button class="link-button" data-action="practice-open" data-id="${esc(e.id)}"><strong>${esc(e.title)}</strong></button><small class="task-sub">${e.mode==="DEBUG_COLLAB"?"Sửa lỗi":"Lập trình từ đầu"}</small></td><td>${esc(e.topic)}</td><td>${pill(e.difficulty,diffClass(e.difficulty))}</td><td>${practiceBadge(e.practiceStatus)}</td><td>${btn("Làm bài →","practice-open","btn-soft btn-sm",`data-id="${esc(e.id)}"`)}</td></tr>`).join("")||'<tr><td colspan="6" class="empty-slim">Không tìm thấy bài phù hợp.</td></tr>';}
+function renderPracticeSearchResults(){
+  const rows=document.getElementById("practice-catalog-rows"),pager=document.getElementById("practice-catalog-pagination");
+  if(!rows||!pager){render();return;}
+  // Keep the actual input node alive: replacing it would interrupt Vietnamese IME composition.
+  rows.innerHTML=renderPracticeRows();
+  pager.innerHTML=pagination(practice.page,practice.pages,practice.total,"practice-page");
+  const warning=document.getElementById("practice-filter-error");
+  if(warning){warning.textContent=practice.error;warning.hidden=!practice.error;}
+}
 export function renderPractice(){
-  const warning=practice.error?`<div class="notice-box warn">${esc(practice.error)}</div>`:"";
+  const warning=`<div id="practice-filter-error" class="notice-box warn" ${practice.error?"":"hidden"}>${esc(practice.error)}</div>`;
   if(practice.exercise)return renderPracticeWork(warning);
   const stats=practice.stats;
-  return `${pageHeader("▤","Luyện code","Chọn bài, viết code và luyện tập theo tốc độ của bạn.",'<span class="chip">Không cần vào phòng · Không cần giao bài</span>')}${warning}<div class="practice-stats">${[["Tổng bài",stats.total],["Đã AC",stats.accepted],["Chưa đạt",stats.failed],["Chưa làm",stats.fresh]].map(([name,value])=>`<div class="card practice-stat"><span>${name}</span><strong>${value||0}</strong></div>`).join("")}</div><section class="card"><div class="filter-panel practice-filters"><input class="field" id="practice-query" maxlength="160" aria-label="Tìm bài" placeholder="Tìm mã hoặc tên bài…" value="${esc(practice.query)}"><select class="select" id="practice-topic" aria-label="Chủ đề"><option value="">Tất cả chủ đề</option>${options(practice.topics,practice.topic)}</select><select class="select" id="practice-difficulty" aria-label="Độ khó"><option value="">Tất cả độ khó</option>${options(["Dễ","Trung bình","Khó"],practice.difficulty)}</select><select class="select" id="practice-mode" aria-label="Loại bài"><option value="">Tất cả loại bài</option><option value="BUILD_FROM_SCRATCH" ${practice.mode==="BUILD_FROM_SCRATCH"?"selected":""}>Lập trình từ đầu</option><option value="DEBUG_COLLAB" ${practice.mode==="DEBUG_COLLAB"?"selected":""}>Sửa lỗi</option></select><select class="select" id="practice-status" aria-label="Trạng thái"><option value="">Tất cả trạng thái</option>${Object.entries(labels).map(([value,[label]])=>`<option value="${value}" ${value===practice.filterStatus?"selected":""}>${label}</option>`).join("")}</select>${btn("Tìm / Lọc","practice-filter","btn-primary")}</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Mã bài</th><th>Tên bài</th><th>Chủ đề</th><th>Độ khó</th><th>Của bạn</th><th></th></tr></thead><tbody>${practice.items.map(e=>`<tr class="practice-row ${e.practiceStatus==="AC"?"practice-ac":e.practiceStatus==="FAILED"?"practice-failed":""}" data-action="practice-open" data-id="${esc(e.id)}"><td class="mono">${esc(e.id)}</td><td><button class="link-button" data-action="practice-open" data-id="${esc(e.id)}"><strong>${esc(e.title)}</strong></button><small class="task-sub">${e.mode==="DEBUG_COLLAB"?"Sửa lỗi":"Lập trình từ đầu"}</small></td><td>${esc(e.topic)}</td><td>${pill(e.difficulty,diffClass(e.difficulty))}</td><td>${practiceBadge(e.practiceStatus)}</td><td>${btn("Làm bài →","practice-open","btn-soft btn-sm",`data-id="${esc(e.id)}"`)}</td></tr>`).join("")||'<tr><td colspan="6" class="empty-slim">Không tìm thấy bài phù hợp.</td></tr>'}</tbody></table></div><div class="card-body">${pagination(practice.page,practice.pages,practice.total,"practice-page")}</div></section>`;
+  return `${pageHeader("▤","Luyện code","Chọn bài, viết code và luyện tập theo tốc độ của bạn.",'<span class="chip">Không cần vào phòng · Không cần giao bài</span>')}${warning}${state.identity?.role==="TEACHER"?`<div style="margin-bottom:16px">${btn("+ Thêm bài vào ngân hàng","practice-create","btn-primary")}</div>`:""}<div class="practice-stats">${[["Tổng bài",stats.total],["Đã AC",stats.accepted],["Chưa đạt",stats.failed],["Chưa làm",stats.fresh]].map(([name,value])=>`<div class="card practice-stat"><span>${name}</span><strong>${value||0}</strong></div>`).join("")}</div><section class="card"><div class="filter-panel practice-filters"><input class="field" id="practice-query" maxlength="160" aria-label="Tìm bài" placeholder="Tìm mã hoặc tên bài…" value="${esc(practice.query)}"><select class="select" id="practice-topic" aria-label="Chủ đề"><option value="">Tất cả chủ đề</option>${options(practice.topics,practice.topic)}</select><select class="select" id="practice-difficulty" aria-label="Độ khó"><option value="">Tất cả độ khó</option>${options(["Dễ","Trung bình","Khó"],practice.difficulty)}</select><select class="select" id="practice-mode" aria-label="Loại bài"><option value="">Tất cả loại bài</option><option value="BUILD_FROM_SCRATCH" ${practice.mode==="BUILD_FROM_SCRATCH"?"selected":""}>Lập trình từ đầu</option><option value="DEBUG_COLLAB" ${practice.mode==="DEBUG_COLLAB"?"selected":""}>Sửa lỗi</option></select><select class="select" id="practice-status" aria-label="Trạng thái"><option value="">Tất cả trạng thái</option>${Object.entries(labels).map(([value,[label]])=>`<option value="${value}" ${value===practice.filterStatus?"selected":""}>${label}</option>`).join("")}</select>${btn("Tìm / Lọc","practice-filter","btn-primary")}</div><div class="table-wrap"><table class="data-table"><thead><tr><th>Mã bài</th><th>Tên bài</th><th>Chủ đề</th><th>Độ khó</th><th>Của bạn</th><th></th></tr></thead><tbody id="practice-catalog-rows">${renderPracticeRows()}</tbody></table></div><div id="practice-catalog-pagination" class="card-body">${pagination(practice.page,practice.pages,practice.total,"practice-page")}</div></section>`;
 }
 function renderPracticeWork(warning){
   const e=practice.exercise,row=practice.result;

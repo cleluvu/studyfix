@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.TimeUnit;
 
-/** Deterministic regression: local notices must wait until the multipart display ends. */
+/** Kiểm tra thông báo trên máy phải chờ đến khi hiển thị xong dữ liệu nhiều phần. */
 public final class ConsoleHistoryInterleaveTest {
     private static String javaExecutable() {
         String exe = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "java.exe" : "java";
@@ -15,8 +15,8 @@ public final class ConsoleHistoryInterleaveTest {
     static void waitForText(Path log,String value) throws Exception {
         long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);
         while(System.nanoTime()<deadline) {
-            // The child process may be midway through writing a multi-byte UTF-8 character.
-            // A transient malformed tail is not a test failure; retry until the marker appears.
+            // Tiến trình con có thể đang ghi dở một ký tự UTF-8 gồm nhiều byte.
+            // Phần cuối tạm thời chưa đủ byte không phải lỗi test; thử đọc lại đến khi thấy dấu mốc.
             try { if(Files.readString(log, StandardCharsets.UTF_8).contains(value)) return; }
             catch (java.nio.charset.MalformedInputException ignored) { }
             Thread.sleep(10);
@@ -48,8 +48,8 @@ public final class ConsoleHistoryInterleaveTest {
                     Protocol.send(out,frames.getFirst());
                     waitForText(log,"BEGIN_HISTORY");
                     keys.write("/heartbeat off\n/heartbeat on\n/load invalid\n/chat KEYBOARD_ACK\n"); keys.flush();
-                    // An actual outbound command proves keyboard actions completed. Do not wait
-                    // for their notices: the corrected client defers those until history ends.
+                    // Lệnh thực sự được gửi đi chứng tỏ thao tác bàn phím đã xử lý xong. Không chờ
+                    // thông báo vì client sẽ giữ chúng lại đến khi hiển thị xong lịch sử.
                     for (;;) {
                         String command=Protocol.receive(in);
                         if(command.equals("/chat KEYBOARD_ACK")) break;

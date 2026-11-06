@@ -26,19 +26,20 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Same-process HTTP adapter for the browser client. Authentication is bridged through the existing
- * TCP control server, so the existing Store/Identity/Room permissions remain the source of truth.
- * The browser never supplies an internal core session id to the assignment domain.
+ * Nhận yêu cầu HTTP từ trình duyệt trong cùng chương trình server. Việc đăng nhập đi qua
+ * server TCP hiện có; quyền truy cập vẫn do Store, Identity và Room kiểm tra.
+ * Trình duyệt không tự cung cấp mã phiên nội bộ cho module bài tập.
  */
 public final class WebGatewayServer implements AutoCloseable {
     private static final int MAX_BODY_BYTES = 128 * 1024;
-    private static final long SESSION_TTL_MILLIS = TimeUnit.MINUTES.toMillis(2);
+    private final long sessionTtlMillis = Math.max(1000,Long.getLong("studyfix.web.sessionTimeoutMillis",TimeUnit.MINUTES.toMillis(2)));
     private static final Set<String> ASSIGNMENT_TYPES = Set.of(
-            "PING", "PRACTICE_LIST", "PRACTICE_GET", "PRACTICE_SUBMIT", "PRACTICE_RUN", "PRACTICE_SUBMISSIONS", "PRACTICE_RESULT", "CATALOG_LIST", "CATALOG_GET", "ROOM_STUDENTS_LIST", "CLASS_PROGRESS",
+            "EXAM_CONFIG","EXAM_STATUS","EXAM_EVENT","EXAM_MONITOR","EXAM_HISTORY","EXAM_SNAPSHOT",
+            "CATALOG_CREATE", "PING", "PRACTICE_LIST", "PRACTICE_GET", "PRACTICE_SUBMIT", "PRACTICE_RUN", "PRACTICE_SUBMISSIONS", "PRACTICE_RESULT", "CATALOG_LIST", "CATALOG_GET", "ROOM_STUDENTS_LIST", "CLASS_PROGRESS",
             "ASSIGN_CREATE", "ASSIGN_LIST", "ASSIGN_GET", "DEBUG_STARTER_PREPARE", "DEBUG_STARTER_LOAD",
             "SHARED_CODE_STATE", "SHARED_CHECK_CREATE", "SHARED_CHECK_LATEST", "SHARED_CHECK_STATUS",
             "SHARED_CHECK_RESULT", "SUBMIT_CREATE", "SUBMISSION_LIST", "SUBMISSION_RESULT",
-            "CONTEST_CREATE", "CONTEST_LIST", "CONTEST_PROBLEMS_GET", "CONTEST_SUBMIT",
+            "CONTEST_RECIPIENTS","CONTEST_DISTRIBUTE","CONTEST_CREATE", "CONTEST_LIST", "CONTEST_PROBLEMS_GET", "CONTEST_SUBMIT",
             "CONTEST_SUBMISSION_RESULT", "CONTEST_SUBMISSION_LIST", "LEADERBOARD_GET",
             "TEACHER_TRIAL_CREATE", "TEACHER_TRIAL_LIST", "TEACHER_TRIAL_RESULT");
     private static final Pattern LOGIN_OK = Pattern.compile("\\[LOGIN_OK] session=([^ ]+) userId=([^ ]+) role=(TEACHER|STUDENT) \\| (.*)");
@@ -46,6 +47,9 @@ public final class WebGatewayServer implements AutoCloseable {
     private final Server core;
     private final AssignmentTcpServer assignments;
     private final ClassroomService classroom;
+    private final PresenceRepository presence;
+    private final AdminManagement admin;
+    private final PresenceWebSocketServer presenceSocket;
     private final MeetingCalls calls = new MeetingCalls();
     private final HttpServer http;
     private final ExecutorService executor;
@@ -53,7 +57,7 @@ public final class WebGatewayServer implements AutoCloseable {
     private final Map<String, WebSession> sessions = new ConcurrentHashMap<>();
     private final Map<String, WebSession> sessionsByCoreId = new ConcurrentHashMap<>();
     private final Map<String, WebSession> sessionsByPeerId = new ConcurrentHashMap<>();
-    /** One active browser-based screen publisher per room; viewer signaling is bidirectional. */
+    /** Mỗi phòng chỉ có một người chia sẻ màn hình trên trình duyệt; hai bên đều có thể gửi tín hiệu kết nối. */
     private final Map<String, String> activeScreenSharersByRoom = new ConcurrentHashMap<>();
     private final Map<String, Deque<Long>> loginAttempts = new ConcurrentHashMap<>();
     private final Path staticRoot;
@@ -66,22 +70,45 @@ public final class WebGatewayServer implements AutoCloseable {
     WebGatewayServer(Server core, AssignmentTcpServer assignments, GradingSandbox sandbox) throws IOException {
         this.core = Objects.requireNonNull(core);
         this.assignments = Objects.requireNonNull(assignments);
+        this.presence = new PresenceRepository(core.store());
+        this.admin = new AdminManagement(core,this::revokeUser,this::detachConnection);
+        try { presence.recover(); } catch(java.sql.SQLException e) { throw new IOException("Không khôi phục được trạng thái kết nối.",e); }
         String bindHost = System.getProperty("studyfix.web.host", envOrDefault("STUDYFIX_WEB_HOST", "0.0.0.0"));
         int port = Integer.getInteger("studyfix.web.port", envPort("STUDYFIX_WEB_PORT", 8080));
         this.http = createHttpServer(bindHost, port);
         this.executor = new ThreadPoolExecutor(4, 32, 30, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(256), r -> { Thread t = new Thread(r, "studyfix-web-http"); t.setDaemon(true); return t; },
                 new ThreadPoolExecutor.CallerRunsPolicy());
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "studyfix-web-cleanup"); t.setDaemon(true); return t; });
+        this.scheduler = Executors.newScheduledThreadPool(2,r -> { Thread t = new Thread(r, "studyfix-web-maintenance"); t.setDaemon(true); return t; });
         this.http.setExecutor(executor);
         this.http.createContext("/", this::handle);
         Path dist = Path.of(System.getProperty("studyfix.web.dist", "../web-client/dist")).toAbsolutePath().normalize();
         Path fallback = Path.of(System.getProperty("studyfix.web.root", "../web-client/static")).toAbsolutePath().normalize();
         this.staticRoot = Files.isRegularFile(dist.resolve("index.html")) ? dist : fallback;
+        int wsPort=Integer.getInteger("studyfix.web.ws.port",envPort("STUDYFIX_WS_PORT",port==0?0:port+1));
+        this.presenceSocket="false".equalsIgnoreCase(System.getenv("STUDYFIX_WS_ENABLED"))?null:new PresenceWebSocketServer(new InetSocketAddress(bindHost,wsPort),http.getAddress().getPort(),tlsContext(),new PresenceWebSocketServer.Access(){
+            public Object authenticate(String token,InetSocketAddress peer)throws Exception{
+                WebSession session=sessions.get(token);if(session==null)throw new SecurityException();webSocketHeartbeat(session,peer);return session;
+            }
+            public void heartbeat(Object session,InetSocketAddress peer)throws Exception{webSocketHeartbeat((WebSession)session,peer);}
+            public Map<String,Object> snapshot(Object session,boolean adminView)throws Exception{
+                WebSession s=(WebSession)session;validateLiveSession(s);
+                Map<String,Object> exam=examSnapshot(s);
+                if(s.identity.role()!=Identity.Role.TEACHER)return core.store().management()==null?map("type","ALIVE","examSnapshot",exam):map("type","ADMISSION_UPDATE","admissions",new ClassAdmission(core.store().management()).studentStatus(s.identity.userId(),s.coreSessionId),"examSnapshot",exam);
+                if(adminView){Map<String,Object> data=admin.view(s.identity,"");return map("type","ADMIN_UPDATE","data",data,"examSnapshot",exam);}
+                String room=currentRoomId(s);Room managed=core.rooms.get(room);
+                return map("type","PRESENCE","roomId",room,"connections",managed!=null&&managed.isOwner(s.identity)?presence.students(room):List.of(),"joinRequests",core.store().management()==null?List.of():new ClassAdmission(core.store().management()).pending(s.identity.userId()),"examSnapshot",exam);
+            }
+        });
         classroom = new ClassroomService(core, assignments::classroomExercise, sandbox);
-        scheduler.scheduleWithFixedDelay(this::cleanup, 15, 15, TimeUnit.SECONDS);
+        scheduler.scheduleWithFixedDelay(this::cleanup, 1, 1, TimeUnit.SECONDS);
     }
 
+    private Map<String,Object> examSnapshot(WebSession session){
+        String room=currentRoomId(session);if(room.isBlank())return map("modes",List.of(),"monitors",Map.of());
+        Map<String,Object> result=assignments.handleWebRequest(map("type","EXAM_SNAPSHOT","sessionId",session.coreSessionId,"roomId",room));
+        return "OK".equals(result.get("status"))?AssignmentJson.map(result.get("data")):map("modes",List.of(),"monitors",Map.of());
+    }
     private static String envOrDefault(String name, String fallback) {
         String value = System.getenv(name);
         return value == null ? fallback : value;
@@ -100,8 +127,13 @@ public final class WebGatewayServer implements AutoCloseable {
     }
 
     private static HttpServer createHttpServer(String bindHost, int port) throws IOException {
+        SSLContext ssl=tlsContext();
+        if(ssl==null)return HttpServer.create(new InetSocketAddress(bindHost,port),64);
+        HttpsServer secure=HttpsServer.create(new InetSocketAddress(bindHost,port),64);secure.setHttpsConfigurator(new HttpsConfigurator(ssl));return secure;
+    }
+    private static SSLContext tlsContext()throws IOException{
         String keyStorePath = System.getProperty("studyfix.web.keystore", envOrDefault("STUDYFIX_WEB_KEYSTORE", "")).trim();
-        if (keyStorePath.isBlank()) return HttpServer.create(new InetSocketAddress(bindHost, port), 64);
+        if (keyStorePath.isBlank()) return null;
         String password = System.getProperty("studyfix.web.keystore.password", envOrDefault("STUDYFIX_WEB_KEYSTORE_PASSWORD", ""));
         if (password.isEmpty()) throw new IOException("Đã cấu hình studyfix.web.keystore nhưng thiếu studyfix.web.keystore.password.");
         String type = System.getProperty("studyfix.web.keystore.type", "PKCS12");
@@ -112,9 +144,7 @@ public final class WebGatewayServer implements AutoCloseable {
             kmf.init(store, password.toCharArray());
             SSLContext ssl = SSLContext.getInstance("TLS");
             ssl.init(kmf.getKeyManagers(), null, null);
-            HttpsServer secure = HttpsServer.create(new InetSocketAddress(bindHost, port), 64);
-            secure.setHttpsConfigurator(new HttpsConfigurator(ssl));
-            return secure;
+            return ssl;
         } catch (GeneralSecurityException | RuntimeException e) {
             throw new IOException("Không khởi tạo được HTTPS gateway. Kiểm tra keystore, loại keystore và mật khẩu.", e);
         }
@@ -123,18 +153,26 @@ public final class WebGatewayServer implements AutoCloseable {
     public synchronized void start() {
         if (closed) throw new IllegalStateException("Web gateway đã đóng.");
         if (started) return;
+        if(presenceSocket!=null)try{presenceSocket.startChecked();}catch(IOException e){throw new IllegalStateException(e.getMessage(),e);}
         http.start();
         started = true;
         System.out.println("StudyFix Web Gateway chạy tại " + scheme() + "://" + http.getAddress().getHostString() + ":" + http.getAddress().getPort());
         System.out.println("FE source/fallback: " + staticRoot);
     }
     public int port() { return http.getAddress().getPort(); }
+    int webSocketPort(){return presenceSocket==null?-1:presenceSocket.getPort();}
+    private Map<String,Object> webSocketConfig(){return map("enabled",presenceSocket!=null,"port",webSocketPort(),"path","/presence","tls",scheme().equals("https"));}
     public String scheme() { return http instanceof com.sun.net.httpserver.HttpsServer ? "https" : "http"; }
     public boolean isRunning() { return started && !closed; }
 
     private void handle(HttpExchange ex) throws IOException {
         try {
             securityHeaders(ex.getResponseHeaders());
+            if(presenceSocket!=null)try{
+                URI host=URI.create(scheme()+"://"+ex.getRequestHeaders().getFirst("Host"));
+                URI ws=new URI(scheme().equals("https")?"wss":"ws",null,host.getHost(),webSocketPort(),null,null,null);
+                String csp=ex.getResponseHeaders().getFirst("Content-Security-Policy");ex.getResponseHeaders().set("Content-Security-Policy",csp.replace("connect-src 'self'","connect-src 'self' "+ws));
+            }catch(URISyntaxException|IllegalArgumentException ignored){}
             String path = ex.getRequestURI().getPath();
             if (path.startsWith("/api/")) {
                 if ("OPTIONS".equalsIgnoreCase(ex.getRequestMethod())) { corsPreflight(ex); return; }
@@ -153,6 +191,10 @@ public final class WebGatewayServer implements AutoCloseable {
             json(ex, 400, Map.of("ok", false, "error", "INVALID_REQUEST", "message", safeMessage(e)));
         } catch (IllegalStateException e) {
             json(ex, 409, Map.of("ok", false, "error", "STATE_CONFLICT", "message", safeMessage(e)));
+        } catch (java.sql.SQLException e) {
+            boolean duplicate=e.getSQLState()!=null&&e.getSQLState().startsWith("23");
+            if(core.store().management()==null)json(ex,500,map("ok",false,"error","INTERNAL_ERROR","message","Không thể hoàn tất yêu cầu. Kiểm tra nhật ký server."));
+            else json(ex,duplicate?409:503,map("ok",false,"error",duplicate?"DATA_CONFLICT":"DATABASE_UNAVAILABLE","message",duplicate?"Dữ liệu đã tồn tại hoặc không thỏa ràng buộc. Hãy kiểm tra mã/tài khoản.":"Không kết nối hoặc ghi được database. Kiểm tra cấu hình và dịch vụ MySQL."));
         } catch (Exception e) {
             System.err.println("Web gateway error: " + e.getClass().getSimpleName() + ": " + safeMessage(e));
             json(ex, 500, Map.of("ok", false, "error", "INTERNAL_ERROR", "message", "Không thể hoàn tất yêu cầu. Kiểm tra nhật ký server."));
@@ -165,13 +207,21 @@ public final class WebGatewayServer implements AutoCloseable {
         String method = ex.getRequestMethod().toUpperCase(Locale.ROOT);
         if (path.equals("/api/health") && method.equals("GET")) {
             json(ex, 200, map("ok", true, "service", "StudyFix Web Gateway", "scheme", scheme(), "webPort", port(),
-                    "controlPort", core.port(), "assignmentPort", assignments.port(), "time", System.currentTimeMillis())); return;
+                    "controlPort", core.port(), "assignmentPort", assignments.port(),"managementDatabase",core.store().management()==null?"sqlite":"mysql","webSocket",webSocketConfig(),"time", System.currentTimeMillis())); return;
         }
         if (path.equals("/api/auth/login") && method.equals("POST")) { login(ex); return; }
-        if (path.equals("/api/auth/logout") && method.equals("POST")) { WebSession s = requireSession(ex); closeSession(s); json(ex, 200, Map.of("ok", true)); return; }
+        if (path.equals("/api/auth/logout") && method.equals("POST")) { WebSession s = requireSession(ex); s.disconnectReason="LOGOUT";closeSession(s); json(ex, 200, Map.of("ok", true)); return; }
 
         WebSession s = requireSession(ex);
-        s.touch();
+        touchSession(s,ex);
+        if(path.equals("/api/admin")&&(method.equals("GET")||method.equals("POST"))){
+            AdminManagement.requireAdmin(s.identity);cleanup();
+            Map<String,Object> data=method.equals("GET")?admin.view(s.identity,queryText(ex.getRequestURI(),"classId")):admin.action(s.identity,readBody(ex));
+            json(ex,200,map("ok",true,"data",data));return;
+        }
+        if(path.equals("/api/auth/heartbeat")&&method.equals("POST")) {
+            json(ex,200,map("ok",true,"serverTime",System.currentTimeMillis(),"timeoutMillis",sessionTtlMillis));return;
+        }
         if(path.equals("/api/auth/departing")&&method.equals("POST")) {
             long generation=s.departureGeneration.incrementAndGet();
             s.departure=scheduler.schedule(()->{if(s.departureGeneration.get()==generation)closeSession(s);},8,TimeUnit.SECONDS);
@@ -180,10 +230,15 @@ public final class WebGatewayServer implements AutoCloseable {
         if (path.equals("/api/me") && method.equals("GET")) {
             String roomId = currentRoomId(s);
             Room current=roomId.isBlank()?null:core.rooms.get(roomId);
-            json(ex, 200, map("ok", true, "identity", identityMap(s.identity), "peerId", s.peerId, "roomId", roomId,"roomCode",current==null?"":current.getRoomCode())); return;
+            json(ex, 200, map("ok", true, "identity", identityMap(s.identity), "webSocket",webSocketConfig(),"peerId", s.peerId, "roomId", roomId,"roomCode",current==null?"":current.getRoomCode())); return;
         }
         if (path.equals("/api/rooms") && method.equals("GET")) { rooms(ex, s); return; }
         if (path.equals("/api/rooms/current") && method.equals("GET")) { currentRoom(ex, s); return; }
+        if (path.equals("/api/rooms/current/presence") && method.equals("GET")) {
+            Room room=requireCurrentRoom(s);
+            if(!room.isOwner(s.identity))throw new ApiException(403,"FORBIDDEN","Chỉ giảng viên quản lý lớp này được xem kết nối.");
+            json(ex,200,map("ok",true,"connections",roomPresence(room),"timeoutMillis",sessionTtlMillis));return;
+        }
         if (path.equals("/api/rooms/current/history") && method.equals("GET")) { roomHistory(ex, s); return; }
         if (path.equals("/api/rooms/current/chat") && method.equals("GET")) {
             Room room=requireCurrentRoom(s);
@@ -220,59 +275,72 @@ public final class WebGatewayServer implements AutoCloseable {
 
     private void login(HttpExchange ex) throws Exception {
         String ip = ex.getRemoteAddress().getAddress().getHostAddress();
-        if (!allowLoginAttempt(ip)) throw new ApiException(429, "RATE_LIMITED", "Đăng nhập quá nhiều lần. Vui lòng thử lại sau một phút.");
         Map<String,Object> body = readBody(ex);
-        String username = text(body, "username", "").trim();
+        String username = text(body, "studentCode", text(body, "username", "")).trim();
         String password = text(body, "password", "");
         if (username.isBlank() || password.isBlank() || username.length() > 64 || password.length() > 256)
             throw new ApiException(400, "INVALID_REQUEST", "Vui lòng nhập tên đăng nhập và mật khẩu hợp lệ.");
-        WebSession session = WebSession.login(core.port(), username, password);
+        if (!allowLoginAttempt(ip,username)) throw new ApiException(429, "RATE_LIMITED", "Đăng nhập quá nhiều lần. Vui lòng thử lại sau một phút.");
+        WebSession session = WebSession.login(core, username, password,ip);
+        try { presence.login(session.connectionId,session.coreSessionId,session.identity,ip,session.loginTime); }
+        catch(java.sql.SQLException e){session.close();throw new ApiException(503,"PRESENCE_UNAVAILABLE","Không lưu được phiên đăng nhập. Vui lòng thử lại.");}
         sessions.put(session.token, session);
         sessionsByCoreId.put(session.coreSessionId, session);
         sessionsByPeerId.put(session.peerId, session);
         session.heartbeat = scheduler.scheduleAtFixedRate(() -> {
             if (!session.closed) try { session.send("/ping"); } catch (IOException ignored) { }
         }, 8, 8, TimeUnit.SECONDS);
-        json(ex, 200, map("ok", true, "token", session.token, "peerId", session.peerId,
+        if (session.closed) session.heartbeat.cancel(false);
+        json(ex, 200, map("ok", true, "token", session.token, "peerId", session.peerId,"webSocket",webSocketConfig(),
                 "identity", identityMap(session.identity), "roomId", currentRoomId(session)));
     }
 
-    private synchronized boolean allowLoginAttempt(String ip) {
+    private synchronized boolean allowLoginAttempt(String ip,String login) {
         long now = System.currentTimeMillis();
-        Deque<Long> attempts = loginAttempts.computeIfAbsent(ip, k -> new ArrayDeque<>());
-        while (!attempts.isEmpty() && now - attempts.peekFirst() > 60_000) attempts.removeFirst();
-        if (attempts.size() >= 10) return false;
-        attempts.addLast(now);
+        Deque<Long> attempts=loginAttempts.computeIfAbsent("account:"+ip+":"+login.toLowerCase(Locale.ROOT),k->new ArrayDeque<>());
+        Deque<Long> sharedIp=loginAttempts.computeIfAbsent("ip:"+ip,k->new ArrayDeque<>());
+        for(Deque<Long> queue:List.of(attempts,sharedIp))while(!queue.isEmpty()&&now-queue.peekFirst()>60_000)queue.removeFirst();
+        if(attempts.size()>=10||sharedIp.size()>=120)return false;
+        attempts.addLast(now);sharedIp.addLast(now);
         return true;
     }
+    private synchronized void pruneLoginAttempts(){long now=System.currentTimeMillis();loginAttempts.entrySet().removeIf(e->{Deque<Long> q=e.getValue();while(!q.isEmpty()&&now-q.peekFirst()>60_000)q.removeFirst();return q.isEmpty();});}
 
     private WebSession requireSession(HttpExchange ex) {
         String auth = ex.getRequestHeaders().getFirst("Authorization");
         if (auth == null || !auth.startsWith("Bearer ")) throw new ApiException(401, "UNAUTHENTICATED", "Phiên đăng nhập không tồn tại. Vui lòng đăng nhập lại.");
         WebSession s = sessions.get(auth.substring(7).trim());
-        if (s == null || s.closed || !s.socket.isConnected() || s.socket.isClosed()) throw new ApiException(401, "UNAUTHENTICATED", "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        if (s == null) throw new ApiException(401,"UNAUTHENTICATED","Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        synchronized(s){
+            if(expired(s,System.currentTimeMillis())){s.disconnectReason=s.closed?"CONNECTION_LOST":"HEARTBEAT_TIMEOUT";closeSession(s);throw new ApiException(401,"UNAUTHENTICATED","Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");}
+            validateLiveSession(s);
+        }
         return s;
     }
 
-    private void rooms(HttpExchange ex, WebSession s) throws IOException {
+    private void rooms(HttpExchange ex, WebSession s) throws IOException,java.sql.SQLException {
         String search=queryText(ex.getRequestURI(),"q").strip();
         if(search.length()>160)throw new IllegalArgumentException("Từ khóa tìm phòng tối đa 160 ký tự.");
         String needle=roomSearchKey(search);
         List<Map<String,Object>> result = new ArrayList<>();
+        Set<String> visible=core.store().management()==null?null:core.store().management().visibleClasses(s.identity);
+        List<Map<String,Object>> admissions=core.store().management()!=null&&s.identity.role()==Identity.Role.STUDENT?new ClassAdmission(core.store().management()).studentStatus(s.identity.userId(),s.coreSessionId):List.of();
+        Map<String,String> admissionStatus=new HashMap<>();for(Map<String,Object> row:admissions)admissionStatus.put(String.valueOf(row.get("classId")),String.valueOf(row.get("status")));
             for (Room room : core.rooms.values()) {
+                if(visible!=null&&!visible.contains(room.getRoomId()))continue;
                 Room.Snapshot snap = room.snapshot();
                 if(room.isExpired())continue;
                 if(!roomSearchKey(room.getRoomCode()).contains(needle)
                         &&!roomSearchKey("Phòng "+room.getRoomCode()).contains(needle))continue;
                 result.add(map("roomId", snap.roomId(),"roomCode",room.getRoomCode(), "ownerId", snap.ownerId(), "version", snap.version(),
-                        "memberCount", snap.members().size(), "online", true, "isMine", snap.ownerId().equals(s.identity.userId())));
+                        "memberCount", snap.members().size(), "online", true, "isMine", snap.ownerId().equals(s.identity.userId()),"admissionStatus",visible==null||s.identity.role()==Identity.Role.TEACHER?"ENROLLED":admissionStatus.getOrDefault(snap.roomId(),"NONE")));
             }
         result.sort(Comparator.comparing(r -> RoomCode.key(String.valueOf(r.get("roomCode")))));
         int pageSize=5;
         int total=result.size(),totalPages=Math.max(1,(total+pageSize-1)/pageSize);
         int page=(int)Math.max(1,Math.min(totalPages,queryLong(ex.getRequestURI(),"page",1)));
         int from=(page-1)*pageSize,to=Math.min(total,from+pageSize);
-        json(ex, 200, map("ok", true, "rooms", result.subList(from,to), "role", s.identity.role().name(),"total",total,"page",page,"pageSize",pageSize,"totalPages",totalPages,"customRoomCodes",true,"emptyRoomAutoDelete",false,"manualRoomDelete",true));
+        json(ex, 200, map("ok", true, "rooms", result.subList(from,to),"admissions",admissions, "role", s.identity.role().name(),"total",total,"page",page,"pageSize",pageSize,"totalPages",totalPages,"customRoomCodes",true,"emptyRoomAutoDelete",false,"manualRoomDelete",true));
     }
 
     private String currentRoomId(WebSession session) {
@@ -310,13 +378,16 @@ public final class WebGatewayServer implements AutoCloseable {
         String editorPeerId = "";
         WebSession editor = snap.editor() == null ? null : sessionsByCoreId.get(snap.editor());
         if (editor != null) editorPeerId = editor.peerId;
-        json(ex, 200, map("ok", true, "room", map("roomId", snap.roomId(),"roomCode",room.getRoomCode(), "ownerId", snap.ownerId(),
+        List<Map<String,Object>> connections=room.isOwner(s.identity)?roomPresence(room):null;
+        Map<String,Object> roomView=map("roomId", snap.roomId(),"roomCode",room.getRoomCode(), "ownerId", snap.ownerId(),
                 "code", snap.code(), "version", snap.version(), "editorPeerId", editorPeerId,
                 "token", Objects.equals(snap.editor(), s.coreSessionId) ? snap.token() : 0L,
                 "recoverableDraft", recoveryView,
                 "draftActive", room.hasActiveDraft(), "editTurnActive", room.hasActiveEditTurn(),
                 "queue", snap.queue().stream().map(id -> { WebSession ws = sessionsByCoreId.get(id); return ws == null ? "(client Swing)" : ws.peerId; }).toList(),
-                "members", members, "history", historySummary)));
+                "members", members, "history", historySummary);
+        if(connections!=null)roomView.put("studentConnections",connections);
+        json(ex,200,map("ok",true,"room",roomView));
     }
 
     private void roomHistory(HttpExchange ex, WebSession s) throws IOException {
@@ -351,6 +422,7 @@ public final class WebGatewayServer implements AutoCloseable {
             case "DELETE_ROOM" -> {
                 String id=text(body,"roomId","");
                 List<String> members=core.deleteRoom(s.identity,id);
+                if(core.store().management()!=null)core.store().management().transaction(c->{try(var p=c.prepareStatement("UPDATE classes SET active=0 WHERE class_id=?")){p.setString(1,id);p.executeUpdate();}return null;});
                 for(WebSession member:sessions.values())if(members.contains(member.coreSessionId)) {
                     calls.leave(member.peerId);
                     endScreenShare(id,member.peerId,"Chủ phòng đã xóa phòng.");
@@ -360,6 +432,11 @@ public final class WebGatewayServer implements AutoCloseable {
             case "JOIN_ROOM" -> {
                 if (!currentRoomId(s).isBlank()) throw new ApiException(409, "ALREADY_IN_ROOM", "Hãy rời phòng hiện tại trước khi tham gia phòng khác.");
                 String roomId = RoomCode.normalize(text(body, "roomId", ""));
+                if(s.identity.role()==Identity.Role.STUDENT&&core.store().management()!=null){
+                    Room target=core.findRoom(roomId);if(target==null)throw new ApiException(404,"ROOM_NOT_FOUND","Không tìm thấy lớp học đang mở.");
+                    Map<String,Object> admission=new ClassAdmission(core.store().management()).request(s.identity,target.getRoomId(),s.coreSessionId);
+                    if(!"APPROVED".equals(admission.get("status"))){json(ex,202,map("ok",true,"admission",admission));return;}
+                }
                 command = "/join " + roomId;
             }
             case "LEAVE_ROOM" -> {
@@ -406,7 +483,7 @@ public final class WebGatewayServer implements AutoCloseable {
             case "KEEP_RANGE" -> command = "/keeprange " + positiveLong(body, "token");
             default -> throw new ApiException(400, "UNKNOWN_ACTION", "Thao tác phòng học không hợp lệ.");
         }
-        // Core socket protocol remains authoritative for room membership, ownership and edit token checks.
+        // Server TCP vẫn kiểm tra thành viên phòng, chủ phòng và token quyền sửa code.
         s.send(command);
         json(ex, 202, map("ok", true, "sent", true, "action", action, "message", "Đã gửi yêu cầu tới StudyFix Server."));
     }
@@ -422,7 +499,7 @@ public final class WebGatewayServer implements AutoCloseable {
         Map<String,Object> body = readBody(ex);
         String type = text(body, "type", "").toUpperCase(Locale.ROOT);
         if (!ASSIGNMENT_TYPES.contains(type)) throw new ApiException(400, "UNKNOWN_ASSIGNMENT_ACTION", "Nghiệp vụ bài tập không hợp lệ.");
-        Room room=type.startsWith("PRACTICE_")?null:requireCurrentRoom(s);
+        Room room=(type.startsWith("PRACTICE_")||type.equals("CATALOG_CREATE"))?null:requireCurrentRoom(s);
         Map<String,Object> request = new LinkedHashMap<>(body);
         request.keySet().removeAll(Set.of("sessionId", "roomId", "requestId"));
         request.put("type", type); request.put("sessionId", s.coreSessionId); request.put("roomId", room==null?"":room.getRoomId());
@@ -480,7 +557,7 @@ public final class WebGatewayServer implements AutoCloseable {
 
         String active = activePresenterForRoom(roomId);
         if (kind.equals("OFFER")) {
-            // Backward compatibility for clients that created an offer before sending START.
+            // Hỗ trợ client cũ đã tạo offer trước khi gửi START.
             if (active.isBlank()) {
                 registerScreenShare(roomId, s, s.identity.displayName());
                 active = s.peerId;
@@ -504,8 +581,8 @@ public final class WebGatewayServer implements AutoCloseable {
         String current = activePresenterForRoom(roomId);
         if (!current.isBlank() && !current.equals(publisher.peerId))
             throw new ApiException(409, "SCREEN_SHARE_ACTIVE", "Đang có thành viên khác chia sẻ màn hình. Hãy đợi họ dừng chia sẻ trước.");
-        // Treat duplicate START from the same browser session as idempotent; do not fan out
-        // duplicate START events that cause peers to create repeated WebRTC offers.
+        // Nếu cùng phiên trình duyệt gửi START nhiều lần thì chỉ xử lý như một lần.
+        // Không phát lại START vì sẽ khiến máy khác tạo trùng offer WebRTC.
         if (publisher.peerId.equals(current)) return;
         activeScreenSharersByRoom.put(roomId, publisher.peerId);
         broadcastScreenSignal(roomId, "START", publisher.peerId,
@@ -586,7 +663,7 @@ public final class WebGatewayServer implements AutoCloseable {
         if (decoded.equals("/")) decoded = "/index.html";
         Path file = staticRoot.resolve(decoded.substring(1)).normalize();
         if (!file.startsWith(staticRoot) || !Files.isRegularFile(file)) {
-            // SPA fallback for app routes only; missing asset requests remain 404.
+            // Chỉ trả trang chính cho đường dẫn điều hướng của ứng dụng; file tài nguyên không tồn tại vẫn trả 404.
             if (decoded.contains(".") && !decoded.endsWith(".html")) { json(ex, 404, Map.of("ok", false, "message", "Không tìm thấy tài nguyên.")); return; }
             file = staticRoot.resolve("index.html");
         }
@@ -644,7 +721,10 @@ public final class WebGatewayServer implements AutoCloseable {
     private static long nonNegativeLong(Map<String,Object> body, String key) { long value = AssignmentJson.number(body, key, -1); if (value < 0) throw new ApiException(400, "INVALID_NUMBER", key + " phải là số không âm."); return value; }
     private static String text(Map<String,Object> body, String key, String fallback) { return AssignmentJson.text(body, key, fallback); }
     private static Map<String,Object> map(Object... pairs) { return AssignmentJson.mapOf(pairs); }
-    private static Map<String,Object> identityMap(Identity i) { return map("userId", i.userId(), "username", i.username(), "displayName", i.displayName(), "role", i.role().name()); }
+    private Map<String,Object> identityMap(Identity i) {
+        try{return map("userId", i.userId(), "username", i.username(), "studentCode",presence.studentCode(i.userId()),"displayName", i.displayName(), "role", i.role().name());}
+        catch(java.sql.SQLException e){throw new ApiException(503,"STORAGE_ERROR","Không đọc được thông tin tài khoản.");}
+    }
     private static String safeMessage(Throwable e) { String m=e.getMessage(); return m==null||m.isBlank()?"Yêu cầu không hợp lệ.":m.replaceAll("[\\r\\n]", " "); }
 
     private static void securityHeaders(Headers h) {
@@ -670,8 +750,13 @@ public final class WebGatewayServer implements AutoCloseable {
 
     private void cleanup() {
         if (closed) return; long now=System.currentTimeMillis();
-        for (WebSession s : sessions.values()) if (s.closed || now-s.lastSeen>SESSION_TTL_MILLIS || s.socket.isClosed()) closeSession(s);
-        loginAttempts.entrySet().removeIf(e -> e.getValue().isEmpty());
+        for (WebSession s : sessions.values()) synchronized(s){
+            if(expired(s,now)){if(!s.closed)s.disconnectReason="HEARTBEAT_TIMEOUT";closeSession(s);}
+            else try{observePresence(s,false);}
+            catch(java.sql.SQLException e){core.log("Không cập nhật được trạng thái kết nối; sẽ thử lại.");}
+            catch(ApiException e){s.disconnectReason="CONNECTION_LOST";closeSession(s);}
+        }
+        pruneLoginAttempts();
     }
     private void closeSession(WebSession s) {
         if (s == null) return;
@@ -680,14 +765,61 @@ public final class WebGatewayServer implements AutoCloseable {
             String roomId = currentRoomId(s);
             if (!roomId.isBlank()) endScreenShare(roomId, s.peerId, "Người chia sẻ đã mất kết nối.");
         } catch (RuntimeException ignored) { }
-        sessions.remove(s.token, s); sessionsByCoreId.remove(s.coreSessionId, s); sessionsByPeerId.remove(s.peerId, s);
-        if (s.markClosed()) s.close();
+        synchronized(s){
+            if(!s.closed)try{observePresence(s,true);}catch(java.sql.SQLException|ApiException ignored){}
+            s.close();
+            // Giữ phiên đã đóng trong bộ dọn dẹp nếu DB tạm lỗi để thử ghi Offline lại.
+            try{presence.offline(s.connectionId,s.lastSeen,s.disconnectReason);sessions.remove(s.token,s);}
+            catch(java.sql.SQLException e){core.log("Chưa ghi được Offline; phiên đã thu hồi, sẽ thử ghi lại.");}
+            sessionsByCoreId.remove(s.coreSessionId,s);sessionsByPeerId.remove(s.peerId,s);
+        }
+    }
+
+    private boolean expired(WebSession s,long now){return s.closed||s.socket.isClosed()||now-s.lastSeen>=sessionTtlMillis;}
+    private void touchSession(WebSession s,HttpExchange ex)throws java.sql.SQLException {
+        synchronized(s){
+            if(expired(s,System.currentTimeMillis()))throw new ApiException(401,"UNAUTHENTICATED","Phiên đã đóng.");
+            s.touch();s.clientIp=ex.getRemoteAddress().getAddress().getHostAddress();
+            // Không đọc X-Forwarded-For/Forwarded: dự án chưa cấu hình proxy tin cậy.
+            observePresence(s,false);
+        }
+    }
+    private void observePresence(WebSession s,boolean force)throws java.sql.SQLException {
+        String room=currentRoomId(s);long now=System.currentTimeMillis();
+        if(force||!room.equals(s.presenceRoom)||now-s.presenceSavedAt>=2000){
+            if(!room.isBlank()){Room current=core.rooms.get(room);if(current!=null)admin.syncClass(current);}
+            presence.observe(s.connectionId,room,s.clientIp,s.lastSeen);s.presenceRoom=room;s.presenceSavedAt=now;
+        }
+    }
+    private void validateLiveSession(WebSession s){
+        if(expired(s,System.currentTimeMillis()))throw new ApiException(401,"UNAUTHENTICATED","Phiên đã hết hạn.");
+        if(core.store().management()!=null&&System.currentTimeMillis()-s.accountCheckedAt>=5000)try{
+            if(!core.store().management().active(s.identity.userId())){s.disconnectReason="ACCOUNT_DISABLED";closeSession(s);throw new ApiException(401,"ACCOUNT_DISABLED","Tài khoản đã bị khóa.");}s.accountCheckedAt=System.currentTimeMillis();
+        }catch(java.sql.SQLException e){throw new ApiException(503,"MYSQL_UNAVAILABLE","Không xác minh được tài khoản MySQL.");}
+    }
+    private void webSocketHeartbeat(WebSession s,InetSocketAddress peer)throws java.sql.SQLException{
+        synchronized(s){validateLiveSession(s);s.touch();s.clientIp=peer.getAddress().getHostAddress();observePresence(s,false);}
+    }
+    private void revokeUser(String user){
+        for(WebSession s:List.copyOf(sessions.values()))if(s.identity.userId().equals(user)){s.disconnectReason="ACCOUNT_REVOKED";closeSession(s);}
+        for(ClientHandler client:core.clients.values())if(client.identity()!=null&&client.identity().userId().equals(user))client.closeConnection();
+    }
+    private void detachConnection(String connection,String room){
+        for(WebSession session:sessions.values())if(session.connectionId.equals(connection)){
+            ClientHandler client=core.clients.get(session.coreSessionId);
+            if(client!=null)client.leaveClassIfCurrent(room);
+        }
+    }
+    private List<Map<String,Object>> roomPresence(Room room)throws IOException {
+        cleanup();
+        try{return presence.students(room.getRoomId());}catch(java.sql.SQLException e){throw new IOException("Không đọc được danh sách kết nối.",e);}
     }
 
     @Override public synchronized void close() {
         if (closed) return; closed=true; started=false; http.stop(1); scheduler.shutdownNow();
+        if(presenceSocket!=null)presenceSocket.close();
         classroom.close();
-        for (WebSession s : List.copyOf(sessions.values())) closeSession(s);
+        for (WebSession s : List.copyOf(sessions.values())) {s.disconnectReason="SERVER_STOP";closeSession(s);}
         executor.shutdownNow();
     }
 
@@ -698,6 +830,11 @@ public final class WebGatewayServer implements AutoCloseable {
 
     private static final class WebSession {
         final String token=UUID.randomUUID().toString(); final String peerId=UUID.randomUUID().toString();
+        final String connectionId=UUID.randomUUID().toString();
+        final long loginTime=System.currentTimeMillis();
+        volatile String clientIp,presenceRoom="",disconnectReason="CONNECTION_LOST";
+        volatile long presenceSavedAt;
+        volatile long accountCheckedAt;
         final String coreSessionId; final Identity identity; final Socket socket;
         final DataInputStream in; final DataOutputStream out;
         final AtomicLong eventSequence=new AtomicLong(), screenSequence=new AtomicLong(),departureGeneration=new AtomicLong();
@@ -709,18 +846,23 @@ public final class WebGatewayServer implements AutoCloseable {
         private WebSession(Socket socket, DataInputStream in, DataOutputStream out, String coreSessionId, Identity identity) {
             this.socket=socket; this.in=in; this.out=out; this.coreSessionId=coreSessionId; this.identity=identity;
         }
-        static WebSession login(int port, String username, String password) throws Exception {
-            Socket socket = new Socket(); socket.connect(new InetSocketAddress("127.0.0.1", port), 4000); socket.setTcpNoDelay(true); socket.setSoTimeout(8000);
+        static WebSession login(Server core, String username, String password,String ip) throws Exception {
+            Socket socket = new Socket(); socket.connect(new InetSocketAddress("127.0.0.1", core.port()), 4000); socket.setTcpNoDelay(true); socket.setSoTimeout(8000);
             DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream()));
             DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
             Protocol.send(out, "/login " + username + " " + password);
             String response;
             try { response=Protocol.receive(in); } catch (Exception e) { socket.close(); throw new ApiException(503,"AUTH_SERVER_UNAVAILABLE","Không nhận được phản hồi xác thực từ server."); }
             Matcher m=LOGIN_OK.matcher(response);
-            if (!m.matches()) { socket.close(); throw new ApiException(401,"LOGIN_FAILED", response.startsWith("[LOGIN_FAILED]")?"Sai tên đăng nhập hoặc mật khẩu.":safeMessage(new IOException(response))); }
-            Identity identity=new Identity(m.group(2),username,m.group(4),Identity.Role.valueOf(m.group(3)));
+            if (!m.matches()) {
+                socket.close();
+                if(response.startsWith("[LOGIN_FAILED] Database"))throw new ApiException(503,"AUTH_DATABASE_UNAVAILABLE","Database xác thực chưa sẵn sàng. Kiểm tra dịch vụ và cấu hình MySQL.");
+                throw new ApiException(401,"LOGIN_FAILED", response.startsWith("[LOGIN_FAILED]")?"Sai tên đăng nhập hoặc mật khẩu.":safeMessage(new IOException(response)));
+            }
+            Identity identity=core.gateway().identity(m.group(1));
             socket.setSoTimeout(0);
             WebSession result=new WebSession(socket,in,out,m.group(1),identity);
+            result.clientIp=ip;
             Thread reader=new Thread(result::readLoop,"studyfix-web-session-"+username); reader.setDaemon(true); reader.start();
             return result;
         }
@@ -728,7 +870,7 @@ public final class WebGatewayServer implements AutoCloseable {
         private void readLoop() {
             try { while(!closed) { String message=Protocol.receive(in); if (message.equals("/pong")) continue; addEvent(message); } }
             catch (IOException e) { if(!closed) addEvent("[CONNECTION_LOST] Kết nối tới StudyFix Server đã đóng."); }
-            finally { if (!closed) closed=true; try { socket.close(); } catch(IOException ignored){} }
+            finally { close(); }
         }
         private synchronized void addEvent(String message) {
             Event e=new Event(eventSequence.incrementAndGet(),message,System.currentTimeMillis()); events.addLast(e); while(events.size()>500) events.removeFirst();
@@ -736,8 +878,13 @@ public final class WebGatewayServer implements AutoCloseable {
         synchronized List<Map<String,Object>> eventsAfter(long after,int max) { List<Map<String,Object>> out=new ArrayList<>(); for(Event e:events) if(e.id()>after){out.add(e.asMap());if(out.size()>=max)break;} return out; }
         synchronized void addScreenSignal(String roomId,String kind,String fromPeerId,String payload) { screenSignals.addLast(new ScreenSignal(screenSequence.incrementAndGet(),roomId,kind,fromPeerId,payload,System.currentTimeMillis()));while(screenSignals.size()>200)screenSignals.removeFirst(); }
         synchronized List<Map<String,Object>> screenSignalsAfter(long after,String roomId) { List<Map<String,Object>> result=new ArrayList<>();for(ScreenSignal s:screenSignals)if(s.id()>after&&Objects.equals(s.roomId(),roomId))result.add(s.asMap());return result; }
-        synchronized boolean markClosed(){if(closed && socket.isClosed())return false;closed=true;return true;}
-        void close(){closed=true;if(departure!=null)departure.cancel(false);if(heartbeat!=null)heartbeat.cancel(false);try{if(socket.isConnected()&&!socket.isClosed())Protocol.send(out,"/quit");}catch(IOException ignored){}try{socket.close();}catch(IOException ignored){}}
+        void close(){
+            closed=true;
+            ScheduledFuture<?> pending=departure;if(pending!=null)pending.cancel(false);
+            ScheduledFuture<?> ping=heartbeat;if(ping!=null)ping.cancel(false);
+            // Closing the socket is sufficient to detach the core session and cannot block on a write.
+            try{socket.close();}catch(IOException ignored){}
+        }
     }
     private static final class ApiException extends RuntimeException {
         final int status; final String code;

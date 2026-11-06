@@ -4,7 +4,7 @@ import studyfix.StudyFixGateway;
 
 import java.util.Objects;
 
-/** Assignment module adapter; all reads/writes are delegated through the reviewed core gateway. */
+/** Kết nối module bài tập với phần lõi; mọi thao tác đọc và ghi đều đi qua gateway. */
 public final class GatewaySharedRoomCodeProvider implements SharedRoomCodeProvider {
     private final StudyFixGateway gateway;
     public GatewaySharedRoomCodeProvider(StudyFixGateway gateway) { this.gateway = Objects.requireNonNull(gateway); }

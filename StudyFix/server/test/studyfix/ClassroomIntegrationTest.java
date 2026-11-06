@@ -14,7 +14,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Real HTTP/TCP/SQLite tests. The injected grader below is explicitly a test double. */
+/** Test HTTP, TCP và SQLite thật. Bộ chấm truyền vào bên dưới chỉ là bộ giả lập để kiểm thử. */
 public final class ClassroomIntegrationTest {
     static int checks;
     static final HttpClient HTTP=HttpClient.newHttpClient();
@@ -88,14 +88,14 @@ public final class ClassroomIntegrationTest {
             studentId=text(a,"userId","");otherId=text(b,"userId","");String starter=text(b,"code","");
             check(rows(view(base,student).get("branches")).size()==1,"student sees own branch only");
             check(call(base,"/api/classroom/branches/"+otherId,student,null).status==403,"branch IDOR rejected");
-            try(Connection c=DriverManager.getConnection("jdbc:sqlite:"+db.toAbsolutePath());PreparedStatement p=c.prepareStatement("INSERT INTO users VALUES(?,?,?,?,?)")) {
+            try(Connection c=DriverManager.getConnection("jdbc:sqlite:"+db.toAbsolutePath());PreparedStatement p=c.prepareStatement("INSERT INTO users(user_id,username,password_hash,display_name,role) VALUES(?,?,?,?,?)")) {
                 p.setString(1,UUID.randomUUID().toString());p.setString(2,"student3");p.setString(3,Passwords.hash("Student345!".toCharArray()));p.setString(4,"Late student");p.setString(5,"STUDENT");p.executeUpdate();
             }
             String late=login(base,"student3","Student345!");join(base,late,roomId);
             check(starter.equals(rows(view(base,late).get("branches")).getFirst().get("code")),"late student gets own branch from current Master");
             check(rows(view(base,teacher).get("branches")).size()==3,"late enrollment included in teacher grid");
             check(action(base,teacher,"MASTER_SAVE",mapOf("code","tamper")).status==409,"Master frozen during branching");
-            // A raw TCP /request must not bypass the new browser permissions.
+            // Lệnh /request gửi thẳng qua TCP vẫn phải tuân theo quyền mới của giao diện web.
             call(base,"/api/rooms/current/command",student,mapOf("action","REQUEST_EDIT"));Thread.sleep(100);
             check(!core.rooms.get(roomId).hasActiveEditTurn(),"legacy TCP student edit rejected after activation");
             String codeA="public class Main { public static void main(String[] x){System.out.println(1);} } // student A";
@@ -119,7 +119,7 @@ public final class ClassroomIntegrationTest {
             check(action(base,student,"MERGE",mapOf("userId",studentId,"branchVersion",2)).status==403,"student cannot merge");
             check(action(base,teacher,"MERGE",mapOf("userId",studentId,"branchVersion",1)).status==409,"stale preview rejected");
             long masterBefore=core.rooms.get(roomId).snapshot().version();
-            // Inject a database error after writing Master, proving rollback covers history + phase.
+            // Cố ý gây lỗi database sau khi ghi Master để kiểm tra hoàn tác cả lịch sử và bước học hiện tại.
             try(Connection c=DriverManager.getConnection("jdbc:sqlite:"+db.toAbsolutePath());Statement s=c.createStatement()) {
                 s.execute("CREATE TRIGGER reject_test_merge BEFORE INSERT ON classroom_events WHEN NEW.kind='MERGE' BEGIN SELECT RAISE(ABORT,'test merge failure'); END");
             }
@@ -140,7 +140,7 @@ public final class ClassroomIntegrationTest {
             check(codeA.equals(obj(call(base,"/api/classroom/checks/"+checkId,student,null).body.get("check")).get("code")),"snapshot accessible after next round");
             check(rows(obj(call(base,"/api/classroom/rounds/1",student,null).body.get("report")).get("branches")).size()==1,"historical reports preserve privacy");
             check(finalMaster.equals(obj(call(base,"/api/classroom/branches/"+studentId+"?round=1",teacher,null).body.get("branch")).get("code")),"previous round branch retained");
-            // New login for the same student must recover the durable branch, not create a duplicate.
+            // Sinh viên đăng nhập lại phải lấy được nhánh đã lưu, không tạo thêm nhánh trùng.
             String again=login(base,"student1","Student123!");join(base,again,roomId);
             check(rows(view(base,teacher).get("branches")).size()==3,"same-account reconnect does not duplicate branches");
             ok(base,again,"BRANCH_SAVE",mapOf("expectedVersion",0,"code",finalMaster+"\n// durable"));

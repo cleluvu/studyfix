@@ -8,7 +8,7 @@ import static studyfix.PracticeIntegrationTest.request;
 import static studyfix.PracticeIntegrationTest.data;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Optional real Docker end-to-end test; requires the configured Java image locally. */
+/** Test tùy chọn bằng Docker thật, cần có sẵn image Java đã cấu hình trên máy. */
 public final class PracticeDockerIntegrationTest {
     static Map<String,Object> submitAndWait(String base,String token,String type,String source,String key)throws Exception {
         Map<String,Object> row=obj(data(request(base,token,type,mapOf("exerciseId","MATH001","sourceCode",source,"idempotencyKey",key))).get("submission"));

@@ -37,7 +37,7 @@ public class ClientHandler implements Runnable {
 
     public String getMemberId() { return memberId; }
     public Identity identity() { return identity; }
-    /** Current room identifier for the in-process web gateway; never exposed as a credential. */
+    /** Lấy mã định danh phòng hiện tại cho web gateway trong cùng chương trình; mã này không dùng để xác thực. */
     public String getCurrentRoomId() { Room room = currentRoom; return room == null ? null : room.getRoomId(); }
     public boolean isConnected() { return !closed.get(); }
     public String getDisplayName() { return identity == null ? "Chưa đăng nhập" : identity.displayName(); }
@@ -47,7 +47,7 @@ public class ClientHandler implements Runnable {
         enqueue(message);
     }
     public void sendLong(String message) throws IOException {
-        // One queue entry per response: writer emits every part before the next event.
+        // Mỗi phản hồi chiếm một phần tử trong hàng đợi. Gửi hết các phần rồi mới gửi sự kiện tiếp theo.
         enqueue(message);
     }
     private void enqueue(String message) throws IOException {
@@ -91,6 +91,9 @@ public class ClientHandler implements Runnable {
             Room previous = currentRoom;
             currentRoom = null;
             previous.removeMember(memberId);
+            if(identity!=null&&identity.role()==Identity.Role.STUDENT&&server.store().management()!=null)try{
+                new ClassAdmission(server.store().management()).leave(previous.getRoomId(),identity.userId(),memberId);
+            }catch(java.sql.SQLException e){server.log("Không cập nhật được lượt rời lớp; quyền vào đã dùng không được tái sử dụng.");}
             server.departed(memberId, identity, previous.getRoomId(), closeReason);
         }
     }
@@ -99,13 +102,16 @@ public class ClientHandler implements Runnable {
         closeReason="Rời phòng theo yêu cầu";
         leaveRoom();
     }
+    synchronized void leaveClassIfCurrent(String room){
+        if(currentRoom!=null&&room.equals(currentRoom.getRoomId()))leaveCurrentRoom();
+    }
 
     synchronized void leaveDeletedRoom(Room room) {
         if(currentRoom!=room)return;
         closeReason="Chủ phòng đã xóa phòng";
         leaveRoom();
         try {send("[ROOM_DELETED] "+room.getRoomId());}
-        catch(IOException ignored) { /* A disconnected member is already detached. */ }
+        catch(IOException ignored) { /* Thành viên mất kết nối đã được tách khỏi phòng. */ }
     }
 
     synchronized Room createAndJoinRoom(String code) throws java.sql.SQLException {
@@ -119,8 +125,15 @@ public class ClientHandler implements Runnable {
         if(!isConnected()||identity==null)throw new SecurityException("Phiên đăng nhập đã đóng.");
         if(currentRoom!=null)throw new IllegalStateException("Hãy rời phòng hiện tại trước.");
         Room room=server.findRoom(code);if(room==null)return null;
+        if(server.store().management()!=null)try{
+            if(identity.role()==Identity.Role.TEACHER&&!room.isOwner(identity))throw new IllegalStateException("Bạn không được tham gia quản trị lớp của giảng viên khác.");
+            if(!server.store().management().classOpen(room.getRoomId()))throw new IllegalStateException("Lớp học đang đóng hoặc không khả dụng.");
+        }catch(java.sql.SQLException e){throw new IllegalStateException("Không xác minh được trạng thái lớp.");}
         synchronized(room) {
             if(room.isExpired())return null;
+            if(identity.role()==Identity.Role.STUDENT&&server.store().management()!=null)try{
+                if(!new ClassAdmission(server.store().management()).enter(room.getRoomId(),identity.userId(),memberId))throw new IllegalStateException("Bạn chưa được duyệt cho lần vào lớp này. Hãy gửi yêu cầu và chờ giảng viên chấp nhận.");
+            }catch(java.sql.SQLException e){throw new IllegalStateException("Không xác minh được quyền tham gia lớp. Hãy thử lại.");}
             currentRoom=room;closeReason="Client đóng kết nối";room.addMember(this);return room;
         }
     }
@@ -181,6 +194,9 @@ public class ClientHandler implements Runnable {
             }, 1, 1, TimeUnit.SECONDS);
             while (true) {
                 String raw = Protocol.receive(in);
+                // Membership changes from HTTP and TCP commands share one lock.
+                // Never hold this lock while waiting for bytes from the network.
+                synchronized (this) {
                 String command = raw.trim();
                 if (command.equals("/quit")) { closeReason = "Client thoát"; break; }
                 if (command.equals("/ping")) {
@@ -198,7 +214,8 @@ public class ClientHandler implements Runnable {
                         send("[LOGIN_FAILED] Sai tài khoản hoặc mật khẩu.");
                         if (++failedLogins >= 5) { closeReason = "Quá nhiều lần đăng nhập sai"; break; }
                     } else {
-                        server.log("Đăng nhập session=" + memberId + " userId=" + identity.userId());
+                        server.log("Đăng nhập " + identity.displayName() + " (" + identity.username() + ") session="
+                                + memberId + " userId=" + identity.userId() + " role=" + identity.role());
                         send("[LOGIN_OK] session=" + memberId + " userId=" + identity.userId()
                                 + " role=" + identity.role() + " | " + getDisplayName());
                     }
@@ -321,7 +338,7 @@ public class ClientHandler implements Runnable {
                             currentRoom.releaseEdit(this, Long.parseLong(parts[1]));
                         } catch (IllegalArgumentException e) { send("Cách dùng: /release token"); }
                     } else {
-                        // Consume exactly one separator after token; the rest is the exact code.
+                        // Bỏ đúng một ký tự phân cách sau token, giữ nguyên phần code còn lại.
                         java.util.regex.Matcher update = java.util.regex.Pattern.compile(
                                 "/update[ \\t]+(-?\\d+)[ \\t]+(-?\\d+)[ \\t]([\\s\\S]*)").matcher(raw);
                         try {
@@ -344,6 +361,7 @@ public class ClientHandler implements Runnable {
                     }
                 } else {
                     send("Lệnh: /create, /join mã_phòng, /members, /kick sessionId (chủ phòng), /leave, /chat nội_dung, /code, /lines, /history [version], /request, /release token, /select version token 2,5,8|4-7, /setline token dòng nội_dung, /delete token dòng, /keep token dòng, /setrange token nội_dung, /draft token, /finish token, /cancel token, /update (chỉ chủ phòng), /screen-ticket publish|view, /quit");
+                }
                 }
             }
         } catch (EOFException e) {

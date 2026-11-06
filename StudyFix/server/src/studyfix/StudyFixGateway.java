@@ -2,14 +2,16 @@ package studyfix;
 
 import java.io.IOException;
 
-/** Integration surface for teammates 2/3. Session IDs come from authenticated sockets. */
+/** Cung cấp các hàm để module client và bài tập làm việc với server. Mã phiên lấy từ kết nối đã đăng nhập. */
 public final class StudyFixGateway {
     @FunctionalInterface public interface DepartureListener {
-        /** Runs on the departing worker, outside Room locks. Must return promptly. */
+        /** Chạy trên luồng xử lý người rời phòng, không giữ khóa Room. Cần xử lý nhanh để không chặn luồng này. */
         void departed(String sessionId, Identity identity, String roomId, String reason);
     }
     private final Server server;
     StudyFixGateway(Server server) { this.server = server; }
+    /** Internal service diagnostics; never pass passwords, bearer tokens or submitted source. */
+    public void logService(String message) { server.log(message); }
     public Identity identity(String sessionId) { return session(sessionId).identity(); }
     private ClientHandler session(String id) {
         ClientHandler client = server.clients.get(id);
@@ -30,6 +32,34 @@ public final class StudyFixGateway {
         Room room = memberRoom(session, roomId);
         synchronized (room) { return room.isMember(session) && room.isOwner(identity(session)); }
     }
+    /** Trusted current classroom round; never accepts a phase or round from the browser. */
+    public java.util.Map<String,Object> classroomMonitoringContext(String actor,String roomId)throws java.sql.SQLException {
+        Room room=memberRoom(actor,roomId);
+        synchronized(room){
+            if(!room.isMember(actor))throw new SecurityException("Not a room member");
+            return server.store().classroomTransaction(c->{
+                try(java.sql.PreparedStatement p=c.prepareStatement("SELECT phase,round FROM classroom_sessions WHERE room_id=?")){
+                    p.setString(1,roomId);try(java.sql.ResultSet r=p.executeQuery()){
+                        String phase="WAITING";int round=0;if(r.next()){phase=r.getString(1);round=r.getInt(2);}
+                        return studyfix.assignment.protocol.AssignmentJson.mapOf("id","classroom:"+roomId+":"+round,"roomId",roomId,"phase",phase,"round",round,"startAt",0L,"endAt",phase.equals("BRANCHING")?Long.MAX_VALUE:0L);
+                    }
+                }
+            });
+        }
+    }
+    /** Eligible classroom students; no IP, password or login session is exposed. */
+    public java.util.List<Identity> contestStudents(String actor,String roomId)throws java.sql.SQLException{
+        if(!isTeacher(actor,roomId))throw new SecurityException("Only room owner may assign exams");
+        MySqlManagement db=server.store().management();
+        if(db!=null)return db.transaction(c->{java.util.List<Identity> result=new java.util.ArrayList<>();
+            try(java.sql.PreparedStatement p=c.prepareStatement("SELECT u.user_id,u.username,u.display_name FROM class_members m JOIN users u ON u.user_id=m.user_id JOIN classes k ON k.class_id=m.class_id WHERE m.class_id=? AND k.owner_id=? AND m.membership_status='ENROLLED' AND u.role='STUDENT' AND u.active=1")){
+                p.setString(1,roomId);p.setString(2,identity(actor).userId());try(java.sql.ResultSet r=p.executeQuery()){while(r.next())result.add(new Identity(r.getString(1),r.getString(2),r.getString(3),Identity.Role.STUDENT));}
+            }return result;
+        });
+        java.util.Map<String,Identity> result=new java.util.LinkedHashMap<>();
+        for(String item:codeSnapshot(actor,roomId).members()){int split=item.indexOf(" | ");if(split<1)continue;try{Identity i=identity(item.substring(0,split));if(i.role()==Identity.Role.STUDENT)result.put(i.userId(),i);}catch(SecurityException ignored){}}
+        return new java.util.ArrayList<>(result.values());
+    }
     public Room.Snapshot codeSnapshot(String session, String roomId) {
         Room room = memberRoom(session, roomId);
         synchronized (room) {
@@ -37,7 +67,7 @@ public final class StudyFixGateway {
             return room.snapshot();
         }
     }
-    /** Snapshot/version/draft flags read atomically through the core room lock. */
+    /** Giữ khóa phòng để đọc đồng thời bản chụp code, phiên bản và trạng thái bản nháp cho nhất quán. */
     public record AssignmentCodeSnapshot(String roomId, String code, long version,
                                          boolean draftActive, boolean editTurnActive) { }
 
@@ -51,7 +81,7 @@ public final class StudyFixGateway {
         }
     }
 
-    /** Teacher-owner-only write gate for explicitly confirmed DEBUG_COLLAB starter loading. */
+    /** Chỉ giáo viên chủ phòng được nạp code mẫu DEBUG_COLLAB sau khi đã xác nhận rõ ràng. */
     public long loadAssignmentStarterCode(String session, String roomId, long expectedVersion,
                                           String starterCode, String assignmentTitle) {
         Room room = memberRoom(session, roomId);

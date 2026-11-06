@@ -8,7 +8,7 @@ import java.nio.file.*;
 import java.sql.*;
 import java.util.*;
 
-/** Fast module tests using a temporary SQLite file; never touches data/studyfix.db. */
+/** Kiểm tra nhanh module bằng file SQLite tạm, không tác động đến data/studyfix.db. */
 public final class AssignmentModuleSelfTest {
  private static int checks;
  private static void check(boolean ok,String message){checks++;if(!ok)throw new AssertionError(message);}

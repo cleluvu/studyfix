@@ -5,7 +5,7 @@ import java.nio.file.*;
 import java.util.concurrent.*;
 import javax.swing.*;
 
-/** Actual Swing window, live TCP updates, selection, stop button and disposal. */
+/** Kiểm tra cửa sổ Swing thật: cập nhật TCP, chọn mục, nút dừng và đóng cửa sổ. */
 public final class ServerAdminLiveTest {
     static Object field(Object o,String name) throws Exception {
         var f=o.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(o);

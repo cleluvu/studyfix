@@ -9,7 +9,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.BooleanSupplier;
 
-/** Current person-one contract. Real framed TCP, isolated SQLite, no business changes. */
+/** Kiểm tra các chức năng lõi hiện có bằng TCP có khung dữ liệu và SQLite riêng, giữ nguyên nghiệp vụ. */
 public final class PersonOneTest {
     private static String javaExecutable() {
         String exe = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "java.exe" : "java";
@@ -98,7 +98,7 @@ public final class PersonOneTest {
         long end=System.nanoTime()+TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         while(System.nanoTime()<end) {
             try { if(Files.readString(output, java.nio.charset.StandardCharsets.UTF_8).contains(marker)) return true; }
-            catch(java.nio.charset.MalformedInputException ignored) { /* child is midway through UTF-8 output */ }
+            catch(java.nio.charset.MalformedInputException ignored) { /* Tiến trình con đang ghi dở ký tự UTF-8. */ }
             catch(IOException ignored) { }
             Thread.sleep(10);
         }

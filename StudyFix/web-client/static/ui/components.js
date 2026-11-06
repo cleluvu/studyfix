@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { esc } from "../shared/format.js";
 

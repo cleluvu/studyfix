@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** End-to-end screen-share tests using real control TCP, relay TCP and SQLite on loopback. */
+/** Kiểm tra luồng chia sẻ màn hình qua TCP điều khiển, TCP relay và SQLite thật trên máy. */
 public final class ScreenShareRelayIntegrationTest {
     private static int checks;
 
@@ -120,7 +120,7 @@ public final class ScreenShareRelayIntegrationTest {
 
     public static void main(String[] args) throws Exception {
         String oldScreenPort = System.getProperty("studyfix.screen.port");
-        System.setProperty("studyfix.screen.port", "0"); // ask OS for a free test port
+        System.setProperty("studyfix.screen.port", "0"); // Nhờ hệ điều hành chọn cổng trống để test.
         Files.createDirectories(Path.of("build"));
         Path temp = Files.createTempDirectory(Path.of("build").toAbsolutePath(), "screen-share-integration-");
         Path database = temp.resolve("studyfix.db");
@@ -196,7 +196,7 @@ public final class ScreenShareRelayIntegrationTest {
                         "Publisher stop closes viewer stream with STOP packet");
             }
 
-            // Verify the opposite role direction too: a student can publish and the teacher can view.
+            // Kiểm tra cả chiều ngược lại: sinh viên chia sẻ màn hình và giáo viên xem.
             Ticket studentPublish = student1.requestTicket("PUBLISH");
             Ticket teacherView = teacher.requestTicket("VIEW");
             try (RelayPeer studentPublisher = new RelayPeer(studentPublish.port(), studentPublish.value());
@@ -224,7 +224,7 @@ public final class ScreenShareRelayIntegrationTest {
                         "Student stopping screen share closes teacher viewer stream");
             }
 
-            // Verify that leaving the control room also tears down an active screen stream.
+            // Kiểm tra rời phòng cũng đóng luồng chia sẻ màn hình đang chạy.
             Ticket publishOnDeparture = teacher.requestTicket("PUBLISH");
             Ticket viewOnDeparture = student1.requestTicket("VIEW");
             try (RelayPeer publisher = new RelayPeer(publishOnDeparture.port(), publishOnDeparture.value());

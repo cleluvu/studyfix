@@ -54,7 +54,7 @@ check(state.rooms[0].roomId==="newer","response for old search cannot replace re
 globalThis.fetch=async()=>{throw new Error("offline");};await loadRooms();
 check(state.rooms[0].roomId==="newer"&&state.roomsError,"temporary network failure keeps last directory and shows error");
 globalThis.fetch=async()=>result("live",1);await navigate("room");
-check(state.page==="overview","no-room navigation stays at overview instead of reviving removed lobby");
+check(state.page==="admin","Teacher no-room navigation stays at Admin home instead of reviving removed lobby");
 
 let stopped=0,screenClosed=false;
 state.room={roomId:"42"};state.roomId="42";state.page="room";state.callJoined=true;
@@ -62,7 +62,7 @@ state.callLocal={getTracks:()=>[{stop(){stopped++;}},{stop(){stopped++;}}]};
 setScreenSignalHandler(async signal=>{screenClosed=signal.kind==="ROOM_CLOSED";});
 await handleDeletedRoom("41");check(state.room?.roomId==="42"&&stopped===0,"late deletion event from another room cannot close current room");
 await handleDeletedRoom("42");
-check(!state.room&&state.roomId===""&&state.page==="overview","deleted current room returns user to overview");
+check(!state.room&&state.roomId===""&&state.page==="admin","deleted current room returns Teacher to Admin home");
 check(stopped===2&&!state.callJoined&&screenClosed,"deletion stops local call tracks and invokes screen cleanup");
 check(state.token==="test","deletion preserves login token");
 

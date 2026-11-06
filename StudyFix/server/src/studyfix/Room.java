@@ -15,8 +15,8 @@ public class Room {
     private String editor;
     private String classroomPhase;
     private EditSession draft;
-    // A teacher takeover revokes the active draft but preserves a private copy for the old editor.
-    // Only that same room member can retrieve/acknowledge their recovery copy through the web gateway.
+    // Khi giáo viên lấy quyền sửa, thu hồi bản nháp đang dùng nhưng giữ một bản riêng cho người sửa trước đó.
+    // Chỉ đúng thành viên đó trong phòng mới được lấy hoặc xác nhận bản khôi phục qua web gateway.
     private final Map<String, RecoverableDraft> recoverableDrafts = new HashMap<>();
     private long token = 0;
     private long version = 0;
@@ -76,7 +76,7 @@ public class Room {
         return new Snapshot(roomId, ownerId, code, version, editor, token,
                 List.copyOf(people), List.copyOf(queue), List.copyOf(history.values()));
     }
-    /** Role-aware member detail for authenticated web clients. Session IDs stay server-side. */
+    /** Trả thông tin thành viên theo vai trò cho web client đã đăng nhập. Mã phiên chỉ giữ ở server. */
     public record MemberView(String sessionId, String userId, String username, String displayName,
                              String role, boolean online, boolean editor, boolean queued) { }
     public synchronized List<MemberView> memberDetails() {
@@ -92,7 +92,7 @@ public class Room {
         }
         return List.copyOf(out);
     }
-    /** Read-only state used by the assignment module to validate group-check requests. */
+    /** Trạng thái chỉ đọc để module bài tập kiểm tra yêu cầu chấm code chung. */
     public synchronized boolean hasActiveDraft() { return draft != null; }
     public record RecoverableDraft(String sourceCode, long baseVersion, long savedAt) { }
     public synchronized RecoverableDraft recoverableDraftFor(String memberSessionId) {
@@ -103,13 +103,13 @@ public class Room {
         if (memberSessionId != null && members.containsKey(memberSessionId)) recoverableDrafts.remove(memberSessionId);
     }
 
-    /** True while a member holds an edit turn, even if no draft has been opened yet. */
+    /** Trả true khi có thành viên giữ lượt sửa, kể cả lúc chưa mở bản nháp. */
     public synchronized boolean hasActiveEditTurn() { return editor != null; }
 
     /**
-     * Explicit teacher-confirmed loading of a DEBUG_COLLAB starter into the shared room.
-     * This integration point is intentionally narrow: exact expected-version check, no draft,
-     * and no active editor prevent silently overwriting concurrent work.
+     * Nạp code mẫu DEBUG_COLLAB vào phòng chung sau khi giáo viên xác nhận.
+     * Phải khớp phiên bản mong đợi, không có bản nháp
+     * và không có ai giữ quyền sửa để tránh ghi đè bài đang làm.
      */
     public synchronized long loadAssignmentStarter(ClientHandler client, long expectedVersion,
                                                    String starterCode, String assignmentTitle)
@@ -152,6 +152,8 @@ public class Room {
     public synchronized void addMember(ClientHandler client) {
         if(expired)throw new IllegalStateException("Chủ phòng đã xóa phòng. Hãy tạo hoặc chọn phòng khác.");
         members.put(client.getMemberId(), client);
+        server.log("Vào phòng " + roomCode + " [ID=" + roomId + "] người dùng=" + client.getDisplayName()
+                + " (" + (client.identity() == null ? "" : client.identity().username()) + ") session=" + client.getMemberId());
         broadcast("[Hệ thống] " + client.getDisplayName()
                 + " đã vào phòng " + roomId + ".");
         broadcast("[Thành viên] " + getMembers());
@@ -208,7 +210,7 @@ public class Room {
         else if (queue.contains(id)) { client.send("Bạn đã ở trong hàng đợi. " + state()); }
         else { queue.addLast(id); broadcast(state()); }
     }
-    /** Owner-teacher priority path. The regular /request command keeps FIFO semantics for students. */
+    /** Giáo viên chủ phòng được ưu tiên lấy quyền sửa. Sinh viên dùng /request vẫn xếp hàng theo thứ tự yêu cầu. */
     public synchronized void requestEditPriority(ClientHandler client) throws IOException {
         String id = client.getMemberId();
         if (!client.isConnected() || !members.containsKey(id)) { client.send("Bạn chưa tham gia phòng."); return; }
@@ -219,9 +221,9 @@ public class Room {
         String previousEditor = editor == null ? "không có" : nameOf(editor);
         EditSession previousDraft = draft;
         boolean hadDraft = previousDraft != null;
-        // The old client's Swing editor keeps its local draft text. Only the server copy is revoked;
-        // the client receives an explicit conflict message and must not commit using its stale token.
-        // Capture it BEFORE clearing the active draft; otherwise the recovery buffer would be lost.
+        // Client Swing cũ vẫn giữ bản nháp trên máy; chỉ bản nháp ở server bị thu hồi.
+        // Client nhận thông báo xung đột và không được lưu bằng token cũ.
+        // Phải sao lưu trước khi xóa bản nháp đang dùng, nếu không sẽ mất dữ liệu khôi phục.
         if (hadDraft && editor != null && members.containsKey(editor)) {
             recoverableDrafts.put(editor, new RecoverableDraft(previousDraft.build(), previousDraft.version(), System.currentTimeMillis()));
         }
@@ -283,7 +285,7 @@ public class Room {
         server.log("Cập nhật phòng " + roomId + " version=" + version + " userId=" + revision.getEditorId());
         broadcast(state() + "\n--- CODE CHUNG ĐÃ CẬP NHẬT ---\n" + code);
     }
-    /** Console and future UI both use these server-authoritative operations. */
+    /** Client dòng lệnh và giao diện đều dùng các thao tác do server kiểm tra và quyết định. */
     public synchronized void selectLines(ClientHandler client, long expected, long suppliedToken,
                                          String selection) throws IOException {
         if (!validEditor(client, suppliedToken)) return;

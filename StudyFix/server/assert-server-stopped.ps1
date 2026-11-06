@@ -19,6 +19,12 @@ if ($env:STUDYFIX_WEB_PORT) {
     }
 }
 $taskPorts = @(5000, 5001, 5002, $taskWebPort)
+if ($env:STUDYFIX_WS_ENABLED -ne 'false') {
+    $taskWsPort = $taskWebPort + 1
+    if ($env:STUDYFIX_WS_PORT -and (-not [int]::TryParse($env:STUDYFIX_WS_PORT,[ref]$taskWsPort))) { throw 'STUDYFIX_WS_PORT phai la so.' }
+    if ($taskWsPort -lt 1 -or $taskWsPort -gt 65535) { throw 'STUDYFIX_WS_PORT phai tu 1 den 65535.' }
+    $taskPorts += $taskWsPort
+}
 $taskListeners = [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners()
 $taskBusyPorts = @($taskListeners | Where-Object { $_.Port -in $taskPorts } | ForEach-Object { $_.Port } | Sort-Object -Unique)
 if ($taskBusyPorts.Count -gt 0) {

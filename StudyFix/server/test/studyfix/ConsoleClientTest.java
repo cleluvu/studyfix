@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.concurrent.TimeUnit;
 
-/** Launches the actual console client against a labelled fake server (integration stub). */
+/** Chạy client dòng lệnh thật với server giả lập dành riêng cho kiểm thử. */
 public final class ConsoleClientTest {
     private static String javaExecutable() {
         String exe = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "java.exe" : "java";
@@ -34,8 +34,8 @@ public final class ConsoleClientTest {
                     if (!Protocol.receive(in).equals("/login student1 Student123!")) throw new AssertionError("Client login mismatch");
                     Protocol.send(out, "[LOGIN_OK] session=stub userId=stub role=STUDENT");
                     for (String part : Protocol.historyFrames(longHistory)) Protocol.send(out, part);
-                    // Quiet multipart rendering is a separate case from concurrent local output.
-                    // ConsoleHistoryInterleaveTest deterministically covers the latter regression.
+                    // Hiển thị dữ liệu nhiều phần khi yên lặng khác với lúc có thông báo trên máy xuất hiện cùng lúc.
+                    // ConsoleHistoryInterleaveTest kiểm tra riêng lỗi thông báo trên máy chen vào lịch sử.
                     long renderedDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
                     while (!Files.readString(consoleOutput, StandardCharsets.UTF_8).contains("END_HISTORY")
                             && System.nanoTime() < renderedDeadline) Thread.sleep(10);

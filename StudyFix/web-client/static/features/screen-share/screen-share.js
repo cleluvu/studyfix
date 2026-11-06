@@ -1,4 +1,4 @@
-// Browser screen sharing. Signaling is room-scoped by WebGatewayServer; either role may publish.
+// Chia sẻ màn hình trên trình duyệt. WebGatewayServer giới hạn tín hiệu theo phòng; giáo viên và sinh viên đều được chia sẻ.
 import { state } from "../../core/state.js";
 import { api } from "../../core/api.js";
 import { toast } from "../../ui/toast.js";
@@ -55,7 +55,7 @@ export async function startScreenShare() {
       ? "Đang chia sẻ hình ảnh và âm thanh."
       : "Đang chia sẻ hình ảnh, chưa có âm thanh. Muốn phát YouTube cho lớp: chia sẻ lại, chọn tab YouTube và bật Chia sẻ âm thanh tab.", stream.getAudioTracks().length ? "success" : "info");
   } catch (e) {
-    // If the server rejects a second publisher or startup fails, do not leave the capture running.
+    // Dừng quay màn hình nếu server từ chối do đã có người chia sẻ hoặc quá trình bắt đầu bị lỗi.
     state.screenActive = false;
     state.localStream = null;
     state.activeScreenPresenterId = "";
@@ -166,7 +166,7 @@ export async function receiveScreenSignal(signal) {
       return;
     }
     if (kind === "OFFER") {
-      // Teachers and students can both be the viewer/answerer. Room membership is enforced server-side.
+      // Giáo viên và sinh viên đều có thể xem và trả lời kết nối. Server kiểm tra người dùng có trong phòng hay không.
       const previous = state.screenPeers.get(peerId);
       if (previous) { try { previous.close(); } catch (_) {} }
       const pc = new RTCPeerConnection(rtcConfig);

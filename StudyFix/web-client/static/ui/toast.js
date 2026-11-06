@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { toastRegion } from "../core/dom.js";
 import { esc } from "../shared/format.js";
@@ -25,6 +25,15 @@ export function notifyChatMessage({name, text, count = 1, roomId}) {
 export function fail(error) {
   toast(error?.message || String(error), "error");
 }
+
+export function notifyJoinRequest(request){
+  const node=document.createElement("div");node.className="toast join-request-toast";node.setAttribute("role","status");
+  node.setAttribute("data-request-key",request.requestId||`${request.classId}:${request.userId}:${request.requestedAt}`);
+  const attrs=`data-class-id="${esc(request.classId)}" data-id="${esc(request.userId)}" data-requested-at="${Number(request.requestedAt)}" data-request-id="${esc(request.requestId)}"`;
+  node.innerHTML=`<div><strong>Yêu cầu vào lớp ${esc(request.roomCode)}</strong><p>${esc(request.displayName)} · ${esc(request.studentCode)}</p><button class="btn btn-primary btn-sm" data-action="admin-approve-join" ${attrs}>Chấp nhận</button> <button class="btn btn-soft btn-sm" data-action="admin-reject-join" ${attrs}>Từ chối</button></div>`;
+  toastRegion.appendChild(node);setTimeout(()=>node.remove(),12000);
+}
+export function clearJoinRequestNotifications(){for(const node of document.querySelectorAll?.(".join-request-toast")||[])node.remove();}
 
 export function busy(button, on) {
   if (button) {

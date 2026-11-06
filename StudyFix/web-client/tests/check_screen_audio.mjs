@@ -1,4 +1,4 @@
-// Screen-capture/RTC/DOM mocks; this does not certify real YouTube audio playback.
+// Giả lập quay màn hình, RTC và DOM để test; chưa xác nhận âm thanh YouTube chạy trên trình duyệt thật.
 import assert from "node:assert/strict";
 let checks=0,options,requests=[],toasts=[],events=[];
 function check(value,message){assert.ok(value,message);checks++;}

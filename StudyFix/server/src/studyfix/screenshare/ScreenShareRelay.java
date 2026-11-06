@@ -23,13 +23,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Add-on server relay for member 2. This source is intentionally separate from member 1's baseline server;
- * integrate it according to docs/INTEGRATION_PATCH.md after the team agrees on port 5001 and ticket command.
+ * Relay nhận ảnh màn hình từ người chia sẻ rồi chuyển đến các thành viên đang xem.
+ * Dùng cổng TCP riêng, mặc định 5001; người dùng cần vé hợp lệ để kết nối.
  */
 public final class ScreenShareRelay implements AutoCloseable {
     public enum Mode { PUBLISH, VIEW }
     private static final long TICKET_LIFETIME_NANOS = Duration.ofSeconds(30).toNanos();
-    private static final long MIN_FRAME_INTERVAL_NANOS = Duration.ofMillis(100).toNanos(); // maximum 10fps
+    private static final long MIN_FRAME_INTERVAL_NANOS = Duration.ofMillis(100).toNanos(); // Tối đa 10 khung hình mỗi giây.
     private static final int MAX_PENDING_TICKETS = 4096;
     private final StudyFixGateway gateway;
     private final ServerSocket listener;
@@ -55,7 +55,7 @@ public final class ScreenShareRelay implements AutoCloseable {
     }
     public int port() { return listener.getLocalPort(); }
 
-    /** Called by authenticated ClientHandler only after checking its currentRoom. Ticket is one-use, 30s. */
+    /** ClientHandler chỉ gọi sau khi xác thực và kiểm tra phòng hiện tại. Vé dùng một lần, có hạn 30 giây. */
     public String issueTicket(String sessionId, String roomId, Mode mode) {
         if (!gateway.isMember(sessionId, roomId)) throw new SecurityException("Session is not a member of room");
         long now = System.nanoTime();
@@ -85,7 +85,7 @@ public final class ScreenShareRelay implements AutoCloseable {
             ScreenShareWire.Packet hello = ScreenShareWire.read(in);
             if (hello.type() != ScreenShareWire.Type.HELLO) throw new IOException("First packet must be HELLO");
             String token = ScreenShareWire.fromUtf8(hello.payload()).trim();
-            Ticket ticket = tickets.remove(token); // One-time token avoids session-ID spoofing.
+            Ticket ticket = tickets.remove(token); // Token dùng một lần giúp tránh giả mạo bằng mã phiên.
             if (ticket == null || System.nanoTime() > ticket.expiresAtNanos) throw new SecurityException("Ticket missing or expired");
             if (!gateway.isMember(ticket.sessionId, ticket.roomId)) throw new SecurityException("Session left the room");
             socket.setSoTimeout(0);

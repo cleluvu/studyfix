@@ -1,6 +1,7 @@
-﻿$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $project
+. (Join-Path $project 'load-env.ps1')
 
 . (Join-Path $project 'resolve-tools.ps1')
 . (Join-Path $project 'assert-server-stopped.ps1')
@@ -21,7 +22,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $project 'data') | Out-Null
 
 # Start the Swing Server Manager. It starts control, screen relay, and assignment/grading
 # listeners inside one JVM and uses the existing databases without resetting them.
-$classpath = "$appJar;$sqlite"
+$classpath = "$appJar;$(Join-Path $project 'lib\*')"
 Write-Host 'Mo giao dien StudyFix Server Manager...' -ForegroundColor Green
 $webPort = if ($env:STUDYFIX_WEB_PORT) { $env:STUDYFIX_WEB_PORT } else { '8080' }
 Write-Host ('Services: control=5000, screen=5001, assignment=5002, web=' + $webPort) -ForegroundColor Green

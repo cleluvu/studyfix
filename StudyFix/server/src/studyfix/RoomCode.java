@@ -3,7 +3,7 @@ package studyfix;
 import java.text.Normalizer;
 import java.util.Locale;
 
-/** User-facing room codes, distinct from the immutable database identity. */
+/** Mã phòng để người dùng nhập, tách riêng với ID cố định trong database. */
 final class RoomCode {
     static String normalize(String value) {
         String code=Normalizer.normalize(value==null?"":value.strip(),Normalizer.Form.NFC);

@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-/** Binary wire protocol for a dedicated screen TCP port. It is separate from control Protocol (UTF-8 text). */
+/** Giao thức nhị phân cho cổng TCP chia sẻ màn hình riêng, tách khỏi giao thức điều khiển dạng văn bản UTF-8. */
 public final class ScreenShareWire {
     public static final int MAX_PACKET_BYTES = 2 * 1024 * 1024;
     public enum Type {

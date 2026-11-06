@@ -1,4 +1,4 @@
-// Per-recipient unread behavior against synthetic HTTP/DOM; no real browser claim.
+// Kiểm tra tin chưa đọc theo từng người nhận bằng HTTP và DOM giả lập, chưa chạy trình duyệt thật.
 import assert from "node:assert/strict";
 const storage=new Map(),toasts=[],badges=[];
 let focused=true,chat=null,checks=0;
@@ -48,7 +48,7 @@ const oldRoom=state.room;state.room={roomId:"r2"};check(unreadChatCount()===0,"n
 state.room=oldRoom;check(unreadChatCount()===1,"returning to a room retains its unread state");
 state.identity={userId:"other-account",displayName:"Other"};check(unreadChatCount()===0,"different account cannot inherit unread state");state.identity={userId:"student",displayName:"Student"};
 
-// Count may exceed the 80-message display window: server supplies exact count.
+// Số tin chưa đọc có thể lớn hơn 80 tin đang hiển thị; lấy số chính xác từ server.
 state.room={roomId:"large"};storage.set("studyfix.chat.read.student.large","0");
 globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({messages:[{id:100,userId:"teacher",name:"Teacher",text:"latest"}],latestId:100,unreadCount:100})});
 await loadChat();check(unreadChatCount()===100,"server count is not limited to displayed history");
@@ -57,7 +57,7 @@ state.page="room";state.meetingPanel="chat";chat.scrollTop=800;markChatReadIfVis
 pending({ok:true,status:200,json:async()=>({messages:[{id:100,userId:"teacher",name:"Teacher",text:"latest"}],latestId:100,unreadCount:100})});await stale;
 check(unreadChatCount()===0,"old request cannot restore counts after user read the messages");
 
-// A full reload restores the marker without persisting message contents.
+// Tải lại toàn bộ trang vẫn khôi phục mốc đã đọc mà không cần lưu nội dung tin nhắn.
 state.room={roomId:"reload"};storage.set("studyfix.chat.read.student.reload","10");document.title="StudyFix";
 const reloaded=await import("../static/features/classroom/chat-notifications.js?reload");
 globalThis.fetch=async()=>({ok:true,status:200,json:async()=>({messages:[{id:11,userId:"teacher",name:"Teacher",text:"After reload"}],latestId:11,unreadCount:1})});

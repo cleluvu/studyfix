@@ -8,7 +8,7 @@ public final class Protocol {
     public static final int MAX_BYTES = 65536;
     private Protocol() { }
 
-    /** Split only at Unicode code point boundaries; reserve bytes for part headers. */
+    /** Chia dữ liệu đúng ranh giới ký tự Unicode và chừa chỗ cho tiêu đề của từng phần. */
     public static java.util.List<String> historyFrames(String message) {
         if (message.getBytes(StandardCharsets.UTF_8).length <= MAX_BYTES)
             return java.util.List.of(message);

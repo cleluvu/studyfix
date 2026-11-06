@@ -2,7 +2,7 @@ package studyfix.assignment.protocol;
 
 import java.util.*;
 
-/** Small dependency-free JSON codec for the assignment channel. */
+/** Đọc và ghi JSON cho kênh bài tập, không cần thư viện ngoài. */
 public final class AssignmentJson {
     private AssignmentJson() {}
     public static String stringify(Object value) { StringBuilder out = new StringBuilder(); write(value, out); return out.toString(); }

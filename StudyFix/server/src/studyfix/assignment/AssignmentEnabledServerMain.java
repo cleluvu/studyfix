@@ -5,7 +5,7 @@ import studyfix.WebGatewayServer;
 import studyfix.assignment.transport.AssignmentTcpServer;
 import java.util.concurrent.CountDownLatch;
 
-/** Safe additive launcher. Existing studyfix.Server/main/build.xml are not changed. */
+/** Khởi chạy thêm module bài tập mà không cần sửa điểm chạy của Server hay build.xml. */
 public final class AssignmentEnabledServerMain {
  private AssignmentEnabledServerMain(){}
  public static void main(String[] args)throws Exception{

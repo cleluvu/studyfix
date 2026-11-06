@@ -1,4 +1,4 @@
-// Synthetic media/HTTP tests. These do not replace browser-to-browser camera/audio testing.
+// Test bằng media và HTTP giả lập. Vẫn cần thử camera và âm thanh giữa các trình duyệt thật.
 import assert from "node:assert/strict";
 const storage=new Map();
 globalThis.sessionStorage={getItem:k=>storage.get(k)||null};
@@ -17,8 +17,8 @@ class PC {
   async createOffer(){return {type:"offer",sdp:"synthetic SDP"};}async createAnswer(){return {type:"answer",sdp:"synthetic SDP"};}
   async setLocalDescription(d){if(d.type==="offer")this.transceivers.forEach((t,i)=>{t.mid=String(i);});this.localDescription=d;this.signalingState=d.type==="offer"?"have-local-offer":"stable";}
   async setRemoteDescription(d){
-    // Match WebRTC association rules: addTransceiver-created local channels are NOT
-    // reused for an incoming offer. The browser creates separate negotiated channels.
+    // Giả lập đúng cách WebRTC ghép kênh: kênh tạo bằng addTransceiver không được
+    // dùng lại cho offer nhận vào. Trình duyệt tạo các kênh riêng theo quá trình thương lượng.
     if(d.type==="offer")for(const [i,kind] of ["audio","video"].entries()) {
       if(!this.transceivers.some(t=>t.mid===String(i))){const t=this.addTransceiver(kind,{direction:"recvonly"});t.mid=String(i);}
     }
@@ -103,8 +103,8 @@ const cancelled=track("video");finishCapture(new Stream([cancelled]));
 await assert.rejects(joining,/rời phòng/);checks++;
 check(cancelled.readyState==="ended"&&!state.callJoined,"late capture after leaving is stopped immediately");
 
-// The server re-delivers a packet until its cursor is acknowledged. Concurrent
-// toggle/background polls must not both apply the same offer to one connection.
+// Server gửi lại gói tin cho đến khi client xác nhận mốc đã nhận. Nếu bật/tắt thiết bị
+// trùng lúc lấy tín hiệu nền, không được áp dụng cùng offer hai lần cho một kết nối.
 let heldOffer=null,activePolls=0,maxPolls=0;
 roster=[{peerId:"aaa",displayName:"Teacher",audio:true,video:true}];
 globalThis.fetch=async (url,options={})=>{

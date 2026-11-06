@@ -1,4 +1,5 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+import {contestAssignmentClick} from "../features/contests/contest-assignment.js";
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { root } from "./dom.js";
 import { classroomClick, classroomInput, loadClassroom } from "../features/classroom/classroom.js";
@@ -6,6 +7,8 @@ import { callClick, leaveCall } from "../features/classroom/call.js";
 import { markChatReadIfVisible } from "../features/classroom/chat-notifications.js";
 import { state } from "./state.js";
 import {practiceClick,practiceInput,savePracticeDraft} from "../features/exercises/practice.js";
+import {adminClick} from "../features/admin/admin.js";
+import {examClick} from "../features/contests/exam-monitoring.js";
 import { api, assignment, command } from "./api.js";
 import { toast, fail } from "../ui/toast.js";
 import { modal, clearModal } from "../ui/modal.js";
@@ -37,7 +40,7 @@ import {
   submitWork,
   teacherTrialSubmit,
 } from "../features/exercises/exercises.js";
-import { openContest, openContestProblem, submitContestWork } from "../features/contests/contests.js";
+import { openContest, openContestProblem, submitContestWork, submitContestFile } from "../features/contests/contests.js";
 import {
   loadAssignments,
   loadRooms,
@@ -61,6 +64,9 @@ document.addEventListener("click", async (event) => {
   const action = el.dataset.action;
   const d = el.dataset;
   try {
+    if(action.startsWith("contest-assign-")||action==="contest-pick-random"){await contestAssignmentClick(action,d);return;}
+    if(action.startsWith("exam-")){await examClick(action,d);return;}
+    if(action.startsWith("admin-")){await adminClick(action,d);return;}
     if (action.startsWith("call-")) { await callClick(action); return; }
     if (action.startsWith("classroom-")) { await classroomClick(action, d); return; }
     if (action.startsWith("practice-")) { await practiceClick(action,d);return; }
@@ -550,6 +556,8 @@ root.addEventListener("submit", async (event) => {
         durationMinutes: Number(data.get("durationMinutes") || 60),
         contestType: "INDIVIDUAL",
         exerciseIds: state.contestSelected,
+        distributionMode: data.get("distributionMode")||"ALL",
+        problemsPerStudent: Number(data.get("problemsPerStudent")||1),
       });
       state.contestFormOpen = false;
       await loadContests();
@@ -571,10 +579,18 @@ function queueRoomSearch(el) {
   },300);
 }
 root.addEventListener("compositionend",event=>{
+  if(state.exerciseMode!=="room"&&event.target.id==="practice-query")practiceInput(event.target);
   if(event.target.id==="room-search"||(event.target.id==="global-search"&&state.page==="overview"))queueRoomSearch(event.target);
 });
 root.addEventListener("input", (event) => {
   const el = event.target;
+  if (el.form?.id === "contest-form") {
+    if (el.name === "title") state.contestTitle = el.value;
+    if (el.name === "startInMinutes") state.contestStart = Number(el.value);
+    if (el.name === "durationMinutes") state.contestDuration = Number(el.value);
+    if (el.name === "problemsPerStudent") state.contestRandomCount = Number(el.value);
+    if (el.name === "distributionMode") {state.contestDistribution=el.value;if(event.type!=="input")render();}
+  }
   if(el.id==="new-room-code")state.newRoomCode=el.value;
   if(el.id==="overview-room-code")state.joinRoomCode=el.value;
   if(!event.isComposing&&(el.id==="room-search"||(el.id==="global-search"&&state.page==="overview")))queueRoomSearch(el);
@@ -587,7 +603,7 @@ root.addEventListener("input", (event) => {
     state.workCode = el.value;
     state.workCodeDirty = true;
   }
-  if(state.exerciseMode!=="room")practiceInput(el);
+  if(state.exerciseMode!=="room")practiceInput(el,event.isComposing);
   if (el.id === "contest-code") state.contestCode = el.value;
   if (el.id === "chat-draft") state.chatDraft = el.value;
   if (el.id === "catalog-query") state.catalogQuery = el.value;
@@ -620,9 +636,22 @@ window.addEventListener("pagehide", () => {
 
 root.addEventListener("change", async (event) => {
   const el = event.target;
+  if (el.form?.id === "contest-form") {
+    if (el.name === "title") state.contestTitle = el.value;
+    if (el.name === "startInMinutes") state.contestStart = Number(el.value);
+    if (el.name === "durationMinutes") state.contestDuration = Number(el.value);
+    if (el.name === "problemsPerStudent") state.contestRandomCount = Number(el.value);
+    if (el.name === "distributionMode") {state.contestDistribution=el.value;if(event.type!=="input")render();}
+  }
+  if(el.id==="practice-query")return; // Text search is handled by input/compositionend, including when render restores focus.
   if(el.id.startsWith("practice-")) {practiceInput(el);try{await practiceClick("practice-filter",{});}catch(e){fail(e);}return;}
   if(el.id==="classroom-history-round"){state.meetingHistoryRound=Number(el.value);return;}
   if (el.id === "classroom-auto-check") { state.classroomAutoCheck = el.checked; return; }
+  if(el.id==="contest-code-file"){
+    const file=el.files?.[0];el.value="";
+    try{await submitContestFile(file);}catch(e){fail(e);}
+    return;
+  }
   if (el.id === "work-code-file") {
     const file = el.files?.[0];
     el.value = "";

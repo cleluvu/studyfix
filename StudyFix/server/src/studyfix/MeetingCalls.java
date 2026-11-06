@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiPredicate;
 import static studyfix.assignment.protocol.AssignmentJson.mapOf;
 
-/** Bounded WebRTC signaling. Media flows between opted-in members of the same room. */
+/** Giới hạn dữ liệu báo hiệu WebRTC. Âm thanh và hình ảnh truyền giữa các thành viên đồng ý tham gia trong cùng phòng. */
 final class MeetingCalls {
     record Peer(String id,String room,String name,String role,boolean audio,boolean video) { }
     record Signal(long id,String room,String from,String kind,String payload) { }

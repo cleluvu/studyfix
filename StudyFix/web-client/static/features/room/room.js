@@ -1,8 +1,8 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { state, rememberView } from "../../core/state.js";
 import { api, assignment, command } from "../../core/api.js";
-import { loadCurrentRoom, loadPageData, loadRooms, navigate, invalidateRoomRequests } from "../../core/polling.js";
+import { loadCurrentRoom, loadPageData, loadRooms, navigate, invalidateRoomRequests,setAdmissionHandler } from "../../core/polling.js";
 import { refreshMe } from "../auth/auth.js";
 import { renderScreenWorkspace, stopScreenShare } from "../screen-share/screen-share.js";
 import { leaveCall } from "../classroom/call.js";
@@ -13,6 +13,14 @@ import { modal } from "../../ui/modal.js";
 import { pageHeader, render } from "../../ui/render.js";
 import { toast, fail } from "../../ui/toast.js";
 import { renderClassroom } from "../classroom/classroom.js";
+import {homePage} from "../../core/roles.js";
+document.addEventListener("studyfix:presence",event=>{
+  if(state.identity?.role!=="TEACHER"||!state.room||String(event.detail?.roomId)!==String(state.room.roomId))return;
+  const rows=event.detail.connections||[];
+  if(JSON.stringify(rows)===JSON.stringify(state.room.studentConnections))return;
+  state.room.studentConnections=rows;
+  if(state.page==="room"&&state.meetingPanel==="people")render();
+});
 
 export function renderRoom() {
   if (!state.room) return "";
@@ -20,11 +28,12 @@ export function renderRoom() {
 }
 
 export async function leaveMeeting() {
-  state.meetingClosed=true;state.page="overview";rememberView();
+  if(state.identity?.role==="STUDENT"&&state.room){await leaveRoomMembership(state.room.roomId);return;}
+  state.meetingClosed=true;state.page=homePage(state.identity);rememberView();
   await leaveCall();
   await stopScreenShare(true);
   state.meetingPanel="";
-  await navigate("overview");
+  await navigate(homePage(state.identity));
 }
 
 export async function leaveRoomMembership(roomId) {
@@ -38,10 +47,11 @@ export async function leaveRoomMembership(roomId) {
     await command("LEAVE_ROOM");
     state.room=null;state.roomId="";state.classroom=null;
     state.assignments=[];state.students=[];state.progress=[];state.contests=[];
-    state.meetingPanel="";state.page="overview";
+    state.meetingPanel="";state.page=homePage(state.identity);
     rememberView();
     await refreshMe();
     await loadRooms();
+    await loadPageData();
     render();
     toast("Đã rời phòng. Bạn có thể tham gia phòng khác.","success");
   } finally {state.roomLeaving=false;}
@@ -202,7 +212,13 @@ export async function commandCreateRoom(value) {
 export async function joinRoom(roomId) {
   const id = String(roomId || "").trim();
   if (!id) throw new Error("Nhập mã phòng.");
-  await command("JOIN_ROOM", { roomId: id });
+  const result=await command("JOIN_ROOM", { roomId: id });
+  if(result.admission?.status==="PENDING"){
+    state.pendingAdmission={classId:result.admission.classId,roomCode:result.admission.roomCode,requestId:result.admission.requestId,userId:state.identity?.userId};
+    await loadRooms();render();
+    toast("Đã gửi yêu cầu. Đang chờ giảng viên chấp nhận.","info");return;
+  }
+  state.pendingAdmission=null;
   await new Promise((r) => setTimeout(r, 350));
   await refreshMe();
   const room = await loadCurrentRoom(false);
@@ -219,6 +235,22 @@ export async function joinRoom(roomId) {
     toast(last, "error");
   }
 }
+
+export async function handleAdmissionUpdate(rows){
+  const pending=state.pendingAdmission;
+  if(state.identity?.role!=="STUDENT"||!pending||pending.userId!==state.identity.userId)return;
+  const row=rows.find(r=>r.classId===pending.classId&&(!pending.requestId||r.requestId===pending.requestId));if(!row)return;
+  if(row.status==="APPROVED"){
+    state.pendingAdmission=null;
+    if(!state.room){toast("Giảng viên đã chấp nhận. Đang vào lớp…","success");await joinRoom(pending.roomCode);}
+  }else if(["REJECTED","LEFT","CANCELLED","UNAVAILABLE"].includes(row.status)){
+    state.pendingAdmission=null;
+    toast(row.status==="REJECTED"?"Giảng viên đã từ chối yêu cầu vào lớp.":"Lớp không còn khả dụng hoặc quyền tham gia đã thay đổi.","error");
+    await loadRooms();render();
+  }
+}
+setAdmissionHandler(handleAdmissionUpdate);
+document.addEventListener("studyfix:admission-update",event=>{handleAdmissionUpdate(event.detail||[]).catch(fail);});
 
 export function openStarterLoadConfirm(assignmentId) {
   const row = state.assignments.find((a) => a.id === assignmentId) ||

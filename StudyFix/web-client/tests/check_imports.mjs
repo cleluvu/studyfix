@@ -1,6 +1,6 @@
-// Static check for the static/ module tree: every `import { x } from "./y.js"`
-// must resolve to a real `export` in that file, and the whole import graph
-// must be acyclic. Run with: node tests/check_imports.mjs (from web-client/).
+// Kiểm tra các module trong static/: mỗi lệnh import phải tìm được
+// đúng export trong file đích; các file không được import vòng lẫn nhau.
+// Chạy tại thư mục web-client bằng lệnh: node tests/check_imports.mjs.
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,7 +60,7 @@ if (problems.length) {
   console.log("No missing-export problems.");
 }
 
-// Cycle detection (DFS)
+// Dùng duyệt theo chiều sâu (DFS) để tìm vòng phụ thuộc.
 const graph = {};
 for (const [f, deps] of Object.entries(importsByFile)) {
   graph[f] = [...new Set(deps.map((d) => d.target))];

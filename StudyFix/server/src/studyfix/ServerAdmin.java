@@ -10,14 +10,14 @@ import java.util.concurrent.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 
-/** Swing Server Manager. All I/O and snapshot collection run off the EDT. */
+/** Giao diện quản lý server bằng Swing. Đọc/ghi dữ liệu và lấy bản chụp trạng thái chạy ngoài luồng giao diện để tránh bị đơ. */
 public final class ServerAdmin {
     private final JFrame frame = new JFrame("StudyFix — Server Manager");
     private final JLabel status = new JLabel("Đang khởi động StudyFix…");
     private final JLabel serviceStatus = new JLabel("Control TCP 5000 · Screen TCP 5001 · Assignment TCP 5002 · Web HTTP/HTTPS 8080");
     private final JButton stop = new JButton("Dừng toàn bộ dịch vụ");
     private final DefaultTableModel rows = new DefaultTableModel(
-            new String[]{"Phòng", "Owner userId", "Version", "Người giữ quyền", "Thành viên (session | tên)", "Hàng đợi"}, 0) {
+            new String[]{"Mã phòng", "ID nội bộ", "Giáo viên tạo phòng", "Master version", "Giai đoạn / vòng", "Người giữ quyền", "Thành viên (session | tên)", "Hàng đợi"}, 0) {
         @Override public boolean isCellEditable(int r, int c) { return false; }
     };
     private final JTable rooms = new JTable(rows);
@@ -26,6 +26,14 @@ public final class ServerAdmin {
     private final JTextArea code = new JTextArea();
     private final JTextArea activity = new JTextArea();
     private final JTextArea grading = new JTextArea();
+    private final DefaultListModel<String> branchRows = new DefaultListModel<>();
+    private final JList<String> branchList = new JList<>(branchRows);
+    private final JTextArea branchCode = new JTextArea();
+    private final JLabel classroomStatus = new JLabel("Chọn phòng để xem nhánh học sinh.");
+    private java.util.Map<String, ServerMonitor.RoomView> monitorRooms = java.util.Map.of();
+    private java.util.List<ServerMonitor.BranchView> displayedBranches = java.util.List.of();
+    private String historyRoomId;
+    private volatile String monitoredRoomId = "";
     private final ScheduledExecutorService background = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "studyfix-server-manager-monitor");
         t.setDaemon(true);
@@ -41,10 +49,13 @@ public final class ServerAdmin {
 
     private ServerAdmin() {
         code.setEditable(false);
+        branchCode.setEditable(false);
+        branchCode.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         activity.setEditable(false);
         grading.setEditable(false);
         code.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         rooms.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        branchList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         grading.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         activity.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
 
@@ -62,7 +73,16 @@ public final class ServerAdmin {
                 new JScrollPane(history), new JScrollPane(code));
         revisionPane.setResizeWeight(.35);
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Code và lịch sử (chỉ xem)", revisionPane);
+        JPanel masterPanel = new JPanel(new BorderLayout());
+        masterPanel.add(new JLabel("Master của phòng đã chọn — nhánh riêng chỉ thay Master sau khi giáo viên Merge."), BorderLayout.NORTH);
+        masterPanel.add(revisionPane);
+        tabs.addTab("Master và lịch sử", masterPanel);
+        JSplitPane branchPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, new JScrollPane(branchList), new JScrollPane(branchCode));
+        branchPane.setResizeWeight(.3);
+        JPanel classroomPanel = new JPanel(new BorderLayout());
+        classroomPanel.add(classroomStatus, BorderLayout.NORTH);
+        classroomPanel.add(branchPane);
+        tabs.addTab("Nhánh học sinh và kiểm tra", classroomPanel);
         tabs.addTab("Bài tập & chấm", new JScrollPane(grading));
         tabs.addTab("Nhật ký hoạt động (500 dòng gần nhất)", new JScrollPane(activity));
         JSplitPane body = new JSplitPane(JSplitPane.VERTICAL_SPLIT, new JScrollPane(rooms), tabs);
@@ -82,6 +102,9 @@ public final class ServerAdmin {
         history.addListSelectionListener(e -> {
             if (!rendering && !e.getValueIsAdjusting()) showRevision();
         });
+        branchList.addListSelectionListener(e -> {
+            if (!rendering && !e.getValueIsAdjusting()) showBranch();
+        });
         frame.setVisible(true);
 
         background.execute(this::startServices);
@@ -93,8 +116,8 @@ public final class ServerAdmin {
         WebGatewayServer newWebGateway = null;
         try {
             config = AssignmentModuleConfig.load();
-            // When tests/tools override only the core DB, keep learning data beside it
-            // unless an explicit learning DB was supplied. Production script passes both.
+            // Nếu test hoặc công cụ chỉ đổi đường dẫn database chính thì đặt database học tập cạnh đó,
+            // trừ khi đã chỉ định đường dẫn riêng. Script chạy chính thức truyền cả hai đường dẫn.
             if (System.getProperty("studyfix.learning.db") == null
                     && System.getProperty("studyfix.db") != null) {
                 java.nio.file.Path corePath = config.coreDatabase();
@@ -103,7 +126,7 @@ public final class ServerAdmin {
                         config.assignmentPort(), corePath, learningPath, config.queueSize(),
                         config.workers(), config.dockerImage());
             }
-            // Server reads its screen relay and database from system properties.
+            // Server đọc cấu hình relay màn hình và database từ thuộc tính hệ thống.
             System.setProperty("studyfix.port", Integer.toString(config.controlPort()));
             System.setProperty("studyfix.screen.port", Integer.toString(config.screenPort()));
             System.setProperty("studyfix.assignment.port", Integer.toString(config.assignmentPort()));
@@ -133,10 +156,20 @@ public final class ServerAdmin {
             final Server core = newCore;
             final AssignmentTcpServer assignmentServer = newAssignments;
             background.scheduleWithFixedDelay(() -> {
-                Server.Snapshot snapshot = core.snapshot();
-                AssignmentService.Metrics metrics = assignmentServer.metrics();
-                boolean assignmentRunning = assignmentServer.isRunning();
-                SwingUtilities.invokeLater(() -> render(snapshot, metrics, assignmentRunning));
+                try {
+                    java.util.Map<String, ServerMonitor.RoomView> details = ServerMonitor.capture(core, monitoredRoomId);
+                    Server.Snapshot snapshot = core.snapshot();
+                    AssignmentService.Metrics metrics = assignmentServer.metrics();
+                    boolean assignmentRunning = assignmentServer.isRunning();
+                    SwingUtilities.invokeLater(() -> {
+                        if (closing) return;
+                        monitorRooms = details;
+                        render(snapshot, metrics, assignmentRunning);
+                    });
+                } catch (Exception failure) {
+                    // A transient database read must not permanently cancel the scheduled monitor.
+                    core.log("Không cập nhật được Server Manager: " + failure.getClass().getSimpleName());
+                }
             }, 0, 1, TimeUnit.SECONDS);
         } catch (Exception e) {
             if (newWebGateway != null) newWebGateway.close();
@@ -162,7 +195,7 @@ public final class ServerAdmin {
 
     private String selectedRoomId() {
         int index = rooms.getSelectedRow();
-        return index < 0 ? null : (String) rows.getValueAt(index, 0);
+        return index < 0 ? null : (String) rows.getValueAt(index, 1);
     }
 
     private Room.Snapshot selectedRoom() {
@@ -198,20 +231,24 @@ public final class ServerAdmin {
                 + "Worker cấu hình: " + metrics.workerCount() + "\n"
                 + "Đang chấm: " + metrics.activeTasks() + "\n"
                 + "Đang chờ: " + metrics.queuedTasks() + "/" + metrics.queueCapacity() + "\n"
+                + "Đã chấm, đang thử lưu lại database: " + (assignments == null ? 0 : assignments.pendingResultWrites()) + "\n"
                 + "Docker image: " + metrics.dockerImage() + "\n\n"
                 + "Lưu ý: listener đang chạy không bảo đảm Docker Engine/image đã sẵn sàng.\n"
                 + "Kết quả chấm thật được hiển thị trong Client; nếu Docker chưa sẵn sàng,\n"
                 + "StudyFix phải trả SANDBOX_UNAVAILABLE thay vì báo PASS/FAILED giả.\n");
     }
 
-    /** Also used once after shutdown, after the final snapshot is collected off EDT. */
+    /** Cũng gọi một lần sau khi tắt server, khi đã lấy xong trạng thái cuối cùng ngoài luồng giao diện. */
     private void renderSnapshot(Server.Snapshot snapshot) {
         rendering = true;
         String selected = selectedRoomId();
         latest = snapshot;
         rows.setRowCount(0);
         for (Room.Snapshot room : snapshot.rooms()) {
-            rows.addRow(new Object[]{room.roomId(), room.ownerId(), room.version(), room.editor(), room.members(), room.queue()});
+            ServerMonitor.RoomView detail = monitorRooms.get(room.roomId());
+            rows.addRow(new Object[]{detail == null ? "Đang đồng bộ…" : detail.code(), room.roomId(),
+                    detail == null ? room.ownerId() : detail.owner(), room.version(),
+                    detail == null ? "" : detail.phase() + " / " + detail.round(), room.editor(), room.members(), room.queue()});
             if (room.roomId().equals(selected)) rooms.setRowSelectionInterval(rows.getRowCount() - 1, rows.getRowCount() - 1);
         }
         if (rooms.getSelectedRow() < 0 && rows.getRowCount() > 0) rooms.setRowSelectionInterval(0, 0);
@@ -222,28 +259,64 @@ public final class ServerAdmin {
 
     private void showHistory() {
         int selected = history.getSelectedIndex();
+        int previousSize = revisions.size();
         rendering = true;
         revisions.clear();
         Room.Snapshot room = selectedRoom();
+        monitoredRoomId = room == null ? "" : room.roomId();
         if (room == null) {
             code.setText("");
+            historyRoomId = null;
             rendering = false;
+            showBranches();
             return;
         }
         for (CodeRevision revision : room.history()) revisions.addElement(revision.summary());
-        if (!revisions.isEmpty()) history.setSelectedIndex(selected >= 0 && selected < revisions.size()
-                ? selected : revisions.size() - 1);
+        int next = ServerMonitor.historySelection(historyRoomId, room.roomId(), selected, previousSize, revisions.size());
+        if (next >= 0) history.setSelectedIndex(next);
+        historyRoomId = room.roomId();
         rendering = false;
         showRevision();
+        showBranches();
     }
 
     private void showRevision() {
         Room.Snapshot room = selectedRoom();
         int index = history.getSelectedIndex();
         if (room != null && index >= 0 && index < room.history().size()) {
-            code.setText(room.history().get(index).detail());
-            code.setCaretPosition(0);
+            String text = room.history().get(index).detail();
+            if (!code.getText().equals(text)) { code.setText(text); code.setCaretPosition(0); }
         }
+    }
+
+    private void showBranches() {
+        int selected = branchList.getSelectedIndex();
+        String key = selected >= 0 && selected < displayedBranches.size() ? displayedBranches.get(selected).key() : null;
+        String previousRoom = (String) branchList.getClientProperty("roomId");
+        String roomId = selectedRoomId();
+        ServerMonitor.RoomView detail = monitorRooms.get(roomId == null ? "" : roomId);
+        rendering = true;
+        branchRows.clear();
+        displayedBranches = detail == null ? java.util.List.of() : detail.branches();
+        int next = -1;
+        for (ServerMonitor.BranchView branch : displayedBranches) {
+            branchRows.addElement(branch.summary());
+            if (java.util.Objects.equals(previousRoom, roomId) && branch.key().equals(key)) next = branchRows.size() - 1;
+        }
+        branchList.putClientProperty("roomId", roomId);
+        if (!branchRows.isEmpty()) branchList.setSelectedIndex(next < 0 ? 0 : next);
+        classroomStatus.setText(detail == null ? "Chọn phòng để xem nhánh học sinh."
+                : !detail.detailsLoaded() ? "Đang tải nhánh của phòng " + detail.code() + "…"
+                : "Phòng " + detail.code() + " · " + detail.phase() + " · Vòng " + detail.round() + " · " + detail.branches().size() + " nhánh (chỉ xem)");
+        rendering = false;
+        showBranch();
+    }
+
+    private void showBranch() {
+        int selected = branchList.getSelectedIndex();
+        String text = selected >= 0 && selected < displayedBranches.size() ? displayedBranches.get(selected).detail()
+                : "Chưa có nhánh trong vòng hiện tại. Giáo viên cần tách nhánh cho học sinh.\nMaster và lịch sử được xem ở tab riêng.";
+        if (!branchCode.getText().equals(text)) { branchCode.setText(text); branchCode.setCaretPosition(0); }
     }
 
     private void shutdown(boolean dispose) {

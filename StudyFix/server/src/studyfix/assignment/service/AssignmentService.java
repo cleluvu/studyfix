@@ -10,6 +10,8 @@ import studyfix.assignment.integration.SharedRoomCodeProvider;
 import studyfix.assignment.model.*;
 import studyfix.assignment.persistence.AssignmentRepository;
 import studyfix.assignment.persistence.PracticeRepository;
+import studyfix.assignment.persistence.ContestDistributionRepository;
+import studyfix.assignment.persistence.ExamMonitoringRepository;
 import studyfix.assignment.protocol.AssignmentJson;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -20,12 +22,16 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Business rules and access control for module 3. Core Server/Store remain untouched. */
+/** Xử lý nghiệp vụ và quyền truy cập của module bài tập, dùng các lớp Server và Store hiện có. */
 public final class AssignmentService implements AutoCloseable {
  private final PracticeRepository practice;
+ private final ExamMonitoringRepository exams;
+ private final ExamMonitoringRepository branchExams;
+ private final AtomicInteger pendingResultWrites = new AtomicInteger();
+ public int pendingResultWrites(){return pendingResultWrites.get();}
  private final StudyFixGateway gateway; private final AssignmentRepository repo; private final BlockingQueue<GradingTask> queue; private final GradingSandbox sandbox; private final Thread[] workers; private final AtomicBoolean closed=new AtomicBoolean(); private final SharedRoomCodeProvider sharedCodeProvider; private final AtomicInteger activeTasks=new AtomicInteger(); private final int queueCapacity; private final String dockerImage;
  public AssignmentService(StudyFixGateway gateway,Path database,int queueSize,int workerCount,String dockerImage)throws Exception{
-  this.gateway=Objects.requireNonNull(gateway);sharedCodeProvider=new GatewaySharedRoomCodeProvider(gateway);repo=new AssignmentRepository(database);repo.seed(SeedExerciseCatalog.all());this.queueCapacity=Math.max(1,queueSize);this.dockerImage=Objects.requireNonNull(dockerImage);queue=new ArrayBlockingQueue<>(this.queueCapacity);sandbox=new DockerJavaSandbox(dockerImage,2,45);
+  this.gateway=Objects.requireNonNull(gateway);sharedCodeProvider=new GatewaySharedRoomCodeProvider(gateway);repo=new AssignmentRepository(database);exams=new ExamMonitoringRepository(repo);branchExams=new ExamMonitoringRepository(repo,true);repo.seed(SeedExerciseCatalog.all());this.queueCapacity=Math.max(1,queueSize);this.dockerImage=Objects.requireNonNull(dockerImage);queue=new ArrayBlockingQueue<>(this.queueCapacity);sandbox=new DockerJavaSandbox(dockerImage,2,45);
   for(String pending:repo.recoverQueuedSubmissions()){if(!queue.offer(new GradingTask(pending,TaskKind.PERSONAL)))repo.saveResult(pending,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi chấm đầy khi server khởi động.",0,List.of()));}
   for(String pending:repo.recoverQueuedSharedChecks()){if(!queue.offer(new GradingTask(pending,TaskKind.SHARED)))repo.saveSharedCheckResult(pending,"INTERNAL_ERROR","INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi kiểm tra code chung đầy khi server khởi động.",0);}
   for(String pending:repo.recoverQueuedContestSubmissions()){if(!queue.offer(new GradingTask(pending,TaskKind.CONTEST)))repo.saveContestSubmissionResult(pending,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể khôi phục: hàng đợi bài thi đầy khi server khởi động.",0,List.of()));}
@@ -38,8 +44,11 @@ public final class AssignmentService implements AutoCloseable {
   String type=AssignmentJson.text(req,"type","");String sessionId=AssignmentJson.text(req,"sessionId","");String roomId=AssignmentJson.text(req,"roomId","");if(sessionId.isBlank())throw new AccessFailure("UNAUTHENTICATED","Thiếu session đăng nhập.");Identity who;try{who=gateway.identity(sessionId);}catch(SecurityException e){throw new AccessFailure("UNAUTHENTICATED","Phiên StudyFix đã hết hạn hoặc chưa đăng nhập.");}
   if(type.equals("PING"))return ok(requestId,AssignmentJson.mapOf("serverTime",System.currentTimeMillis(),"username",who.username()));
   if(type.startsWith("PRACTICE_"))return handlePractice(requestId,type,req,who);
+  if(type.equals("CATALOG_CREATE"))return createCatalogExercise(requestId,req,who);
   if(roomId.isBlank()||!gateway.isMember(sessionId,roomId))throw new AccessFailure("NOT_MEMBER","Bạn chưa ở trong phòng này.");
   boolean teacherOwner=false;try{teacherOwner=gateway.isTeacher(sessionId,roomId);}catch(SecurityException ignored){}
+  if(type.startsWith("EXAM_")&&!type.equals("EXAM_SNAPSHOT")){String cid=AssignmentJson.text(req,"contestId","");if(who.role()==Identity.Role.STUDENT&&!cid.startsWith("classroom:")&&!ContestDistributionRepository.canAccess(repo,cid,who.userId()))throw new AccessFailure("FORBIDDEN","Bạn chưa được giao kỳ thi này.");}
+  if(type.startsWith("EXAM_"))return handleExam(requestId,type,req,who,sessionId,roomId,teacherOwner);
   switch(type){
    case "CATALOG_LIST" -> {requireOwner(teacherOwner);return ok(requestId,AssignmentJson.mapOf("exercises",repo.listExercises(AssignmentJson.text(req,"query",""),AssignmentJson.text(req,"topic",""),AssignmentJson.text(req,"mode",""))));}
    case "CATALOG_GET" -> {requireOwner(teacherOwner);Exercise e=repo.getExercise(AssignmentJson.text(req,"exerciseId",""));if(e==null)throw new AccessFailure("NOT_FOUND","Không tìm thấy bài tập.");Map<String,Object> d=new LinkedHashMap<>(e.publicView());List<Map<String,Object>> pub=new ArrayList<>();for(int i=0;i<e.tests().size();i++){Exercise.TestCase t=e.tests().get(i);if(!t.hidden())pub.add(AssignmentJson.mapOf("index",i+1,"input",t.input(),"expectedOutput",t.expected(),"weight",t.weight()));}d.put("publicTests",pub);return ok(requestId,AssignmentJson.mapOf("exercise",d));}
@@ -90,16 +99,16 @@ public final class AssignmentService implements AutoCloseable {
      }
     }
     AssignmentRecord a=new AssignmentRecord(UUID.randomUUID().toString(),exerciseId,roomId,who.userId(),scope,targetId,targetUsername,now,deadline,"OPEN",selected.mode());
-    // Snapshot room recipients at the same time as assignment creation so late joiners do not
-    // inflate historical class reports. Legacy assignments without snapshots retain their old fallback.
+    // Lưu danh sách người nhận ngay lúc giao bài để người vào phòng sau
+    // không làm sai báo cáo cũ. Bài giao cũ chưa lưu danh sách vẫn dùng cách tra trước đây.
     List<AssignmentRepository.AssignmentRecipient> recipientSnapshot=new ArrayList<>();
     if(scope.equals("ROOM")) {
      for(Identity recipient:currentRoomStudents(sessionId,roomId)) recipientSnapshot.add(new AssignmentRepository.AssignmentRecipient(recipient.userId(),recipient.username(),recipient.displayName()));
     } else if(targetIdentity!=null) {
      recipientSnapshot.add(new AssignmentRepository.AssignmentRecipient(targetIdentity.userId(),targetIdentity.username(),targetIdentity.displayName()));
     }
-    // Persist the assignment and snapshot atomically before touching shared code. If the starter load
-    // races or fails, the assignment remains valid with an actionable warning.
+    // Lưu bài giao và danh sách người nhận trong cùng giao dịch trước khi đổi code chung. Nếu nạp code mẫu
+    // bị xung đột hoặc lỗi thì bài giao vẫn được giữ và trả về cảnh báo để người dùng xử lý.
     repo.createAssignment(a,recipientSnapshot);
     if(shouldAutoLoadStarter&&starterSnapshot!=null){
      try {
@@ -126,16 +135,82 @@ public final class AssignmentService implements AutoCloseable {
    case "TEACHER_TRIAL_RESULT" -> {requireOwner(teacherOwner);TeacherTrialRecord trial=repo.getTeacherTrial(AssignmentJson.text(req,"trialId",""));if(trial==null||!roomId.equals(trial.roomId())||!who.userId().equals(trial.teacherUserId()))throw new AccessFailure("NOT_FOUND","Không tìm thấy lượt thử của giáo viên.");Map<String,Object> result=new LinkedHashMap<>(teacherTrialMap(trial));result.put("testResults",repo.teacherTrialTestResults(trial.id()));return ok(requestId,AssignmentJson.mapOf("trial",result));}
    case "SUBMISSION_LIST" -> {String aid=AssignmentJson.text(req,"assignmentId","");AssignmentRecord a=requireAssignmentVisible(aid,roomId,who,teacherOwner);List<Map<String,Object>> list=new ArrayList<>();for(SubmissionRecord s:repo.listSubmissions(aid,who.userId(),teacherOwner))list.add(submissionMap(s,false));return ok(requestId,AssignmentJson.mapOf("submissions",list));}
    case "SUBMISSION_RESULT" -> {SubmissionRecord s=repo.getSubmission(AssignmentJson.text(req,"submissionId",""));if(s==null)throw new AccessFailure("NOT_FOUND","Không tìm thấy bài nộp.");AssignmentRecord a=requireAssignmentVisible(s.assignmentId(),roomId,who,teacherOwner);if(!teacherOwner&&!s.userId().equals(who.userId()))throw new AccessFailure("FORBIDDEN","Chỉ xem được kết quả của chính mình.");Map<String,Object>d=new LinkedHashMap<>(submissionMap(s,true));d.put("testResults",repo.publicTestResults(s.id()));return ok(requestId,AssignmentJson.mapOf("submission",d));}
+   case "CONTEST_RECIPIENTS" -> {requireOwner(teacherOwner);String cid=AssignmentJson.text(req,"contestId","");Map<String,Object> c=repo.contest(cid);if(c==null||!roomId.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong lớp.");List<Map<String,Object>> students=new ArrayList<>();for(Identity i:gateway.contestStudents(sessionId,roomId))students.add(AssignmentJson.mapOf("userId",i.userId(),"username",i.username(),"displayName",i.displayName()));return ok(requestId,AssignmentJson.mapOf("students",students,"draws",ContestDistributionRepository.draws(repo,cid)));}
+   case "CONTEST_DISTRIBUTE" -> {return distributeContest(requestId,req,who,sessionId,roomId,teacherOwner);}
    case "CONTEST_CREATE" -> {return createContest(requestId,req,roomId,who,teacherOwner);}
-   case "CONTEST_LIST" -> {return ok(requestId,AssignmentJson.mapOf("contests",repo.listContests(roomId)));}
-   case "CONTEST_PROBLEMS_GET" -> {String cid=AssignmentJson.text(req,"contestId","");Map<String,Object> c=repo.contest(cid);if(c==null||!roomId.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong phòng.");List<Map<String,Object>> problems=new ArrayList<>();for(String exerciseId:repo.contestExerciseIds(cid)){Exercise e=repo.getExercise(exerciseId);if(e==null)continue;Map<String,Object> problem=new LinkedHashMap<>(e.publicView());List<Map<String,Object>> pub=new ArrayList<>();int idx=0;for(Exercise.TestCase t:e.tests()){idx++;if(!t.hidden())pub.add(AssignmentJson.mapOf("index",idx,"input",t.input(),"expectedOutput",t.expected(),"weight",t.weight()));}problem.put("publicTests",pub);problem.put("acceptedByMe",who.role()==Identity.Role.STUDENT&&repo.hasAcceptedContestSubmission(cid,exerciseId,who.userId()));problems.add(problem);}return ok(requestId,AssignmentJson.mapOf("contest",c,"problems",problems));}
+   case "CONTEST_LIST" -> {return ok(requestId,AssignmentJson.mapOf("contests",visibleContests(roomId,who,teacherOwner)));}
+   case "CONTEST_PROBLEMS_GET" -> {String cid=AssignmentJson.text(req,"contestId","");if(!teacherOwner&&!ContestDistributionRepository.canAccess(repo,cid,who.userId()))throw new AccessFailure("FORBIDDEN","Bạn chưa được giao kỳ thi này.");Map<String,Object> c=repo.contest(cid);if(c==null||!roomId.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong phòng.");List<Map<String,Object>> problems=new ArrayList<>();for(String exerciseId:teacherOwner?repo.contestExerciseIds(cid):ContestDistributionRepository.studentProblems(repo,cid,who)){Exercise e=repo.getExercise(exerciseId);if(e==null)continue;Map<String,Object> problem=new LinkedHashMap<>(e.publicView());List<Map<String,Object>> pub=new ArrayList<>();int idx=0;for(Exercise.TestCase t:e.tests()){idx++;if(!t.hidden())pub.add(AssignmentJson.mapOf("index",idx,"input",t.input(),"expectedOutput",t.expected(),"weight",t.weight()));}problem.put("publicTests",pub);problem.put("acceptedByMe",who.role()==Identity.Role.STUDENT&&repo.hasAcceptedContestSubmission(cid,exerciseId,who.userId()));problems.add(problem);}return ok(requestId,AssignmentJson.mapOf("contest",c,"problems",problems,"draws",teacherOwner?ContestDistributionRepository.draws(repo,cid):List.of()));}
    case "CONTEST_SUBMIT" -> {return submitContest(requestId,req,roomId,who,teacherOwner);}
    case "CONTEST_SUBMISSION_RESULT" -> {ContestSubmissionRecord s=repo.getContestSubmission(AssignmentJson.text(req,"submissionId",""));if(s==null||!roomId.equals(s.roomId()))throw new AccessFailure("NOT_FOUND","Không tìm thấy bài nộp trong phòng.");Map<String,Object> c=repo.contest(s.contestId());if(c==null||!roomId.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Kỳ thi không thuộc phòng hiện tại.");if(!teacherOwner&&!s.userId().equals(who.userId()))throw new AccessFailure("FORBIDDEN","Chỉ xem được kết quả bài thi của chính mình.");Map<String,Object> d=new LinkedHashMap<>(contestSubmissionMap(s));d.put("testResults",repo.contestSubmissionTestResults(s.id()));return ok(requestId,AssignmentJson.mapOf("submission",d));}
    case "CONTEST_SUBMISSION_LIST" -> {String cid=AssignmentJson.text(req,"contestId","");String eid=AssignmentJson.text(req,"exerciseId","");Map<String,Object> c=repo.contest(cid);if(c==null||!roomId.equals(c.get("roomId"))||!repo.contestHasExercise(cid,eid))throw new AccessFailure("NOT_FOUND","Không tìm thấy bài trong kỳ thi.");List<Map<String,Object>> items=new ArrayList<>();for(ContestSubmissionRecord item:repo.listContestSubmissions(cid,eid,who.userId(),teacherOwner))items.add(contestSubmissionMap(item));return ok(requestId,AssignmentJson.mapOf("submissions",items));}
    case "LEADERBOARD_GET" -> {requireOwner(teacherOwner);String cid=AssignmentJson.text(req,"contestId","");Map<String,Object> c=repo.contest(cid);if(c==null||!roomId.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong phòng.");return ok(requestId,AssignmentJson.mapOf("contest",c,"entries",repo.leaderboard(cid)));}
    default -> throw new AccessFailure("INVALID_REQUEST","Loại yêu cầu không được hỗ trợ: "+type);
   }
- }catch(AccessFailure e){return error(requestId,e.code,e.getMessage());}catch(IllegalArgumentException e){return error(requestId,"INVALID_REQUEST",e.getMessage());}catch(SQLException e){return error(requestId,"STORAGE_ERROR","Lỗi lưu trữ bài tập: "+safe(e.getMessage()));}catch(Exception e){return error(requestId,"INTERNAL_ERROR","Yêu cầu chưa xử lý được: "+safe(e.getMessage()));}}
+ }catch(AccessFailure e){return error(requestId,e.code,e.getMessage());}catch(SecurityException e){return error(requestId,"FORBIDDEN",e.getMessage());}catch(IllegalArgumentException e){return error(requestId,"INVALID_REQUEST",e.getMessage());}catch(SQLException e){return error(requestId,"STORAGE_ERROR","Lỗi lưu trữ bài tập: "+safe(e.getMessage()));}catch(Exception e){return error(requestId,"INTERNAL_ERROR","Yêu cầu chưa xử lý được: "+safe(e.getMessage()));}}
+ private Map<String,Object> handleExam(String requestId,String type,Map<String,Object> req,Identity who,String session,String room,boolean owner)throws SQLException{
+  try{
+   if(type.equals("EXAM_SNAPSHOT")){
+    List<Map<String,Object>> modes=new ArrayList<>();Map<String,Object> monitors=new LinkedHashMap<>();
+    for(Map<String,Object> c:visibleContests(room,who,owner)){
+     String id=AssignmentJson.text(c,"id","");Map<String,Object> mode=new LinkedHashMap<>(exams.mode(id));long now=System.currentTimeMillis();
+     mode.putAll(AssignmentJson.mapOf("startAt",c.get("startAt"),"endAt",c.get("endAt"),"live",now>=AssignmentJson.number(c,"startAt",Long.MAX_VALUE)&&now<AssignmentJson.number(c,"endAt",0),"title",c.get("title")));
+     modes.add(mode);if(owner&&Boolean.TRUE.equals(mode.get("enabled")))monitors.put(id,exams.monitor(id));
+    }
+    Map<String,Object> branch=gateway.classroomMonitoringContext(session,room);String bid=AssignmentJson.text(branch,"id","");
+    Map<String,Object> bm=new LinkedHashMap<>(branchExams.mode(bid));bm.putAll(AssignmentJson.mapOf("startAt",0L,"endAt",branch.get("endAt"),"live","BRANCHING".equals(branch.get("phase"))));
+    modes.add(bm);if(owner&&Boolean.TRUE.equals(bm.get("enabled")))monitors.put(bid,branchExams.monitor(bid));
+    return ok(requestId,AssignmentJson.mapOf("modes",modes,"monitors",monitors));
+   }
+   String id=AssignmentJson.text(req,"contestId","");boolean branch=id.startsWith("classroom:");
+   Map<String,Object> c=branch?gateway.classroomMonitoringContext(session,room):repo.contest(id);
+   if(branch&&!id.equals(c.get("id")))throw new AccessFailure("NOT_FOUND","Classroom round has changed.");
+   ExamMonitoringRepository monitoring=branch?branchExams:exams;
+   if(c==null||!room.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong phòng đang tham gia.");
+   Map<String,Object> result;
+   switch(type){
+    case "EXAM_CONFIG"->{requireOwner(owner);Object enabled=req.get("enabled");if(!(enabled instanceof Boolean))throw new IllegalArgumentException("enabled phải là boolean.");result=monitoring.configure(id,(Boolean)enabled,AssignmentJson.integer(req,"tabLimit",3),AssignmentJson.integer(req,"pasteLimit",3));}
+    case "EXAM_STATUS"->result=monitoring.status(c,who,session);
+    case "EXAM_EVENT"->result=monitoring.event(c,who,session,req);
+    case "EXAM_MONITOR"->{requireOwner(owner);result=monitoring.monitor(id);}
+    case "EXAM_HISTORY"->{requireOwner(owner);result=AssignmentJson.mapOf("events",monitoring.history(id,AssignmentJson.text(req,"studentId",""),AssignmentJson.text(req,"eventType",""),AssignmentJson.number(req,"before",Long.MAX_VALUE)));}
+    default->throw new AccessFailure("INVALID_REQUEST","Thao tác Exam Mode không hợp lệ.");
+   }return ok(requestId,result);
+  }catch(ExamMonitoringRepository.Failure e){throw new AccessFailure(e.code,e.getMessage());}
+ }
+ private Map<String,Object> createCatalogExercise(String requestId,Map<String,Object> req,Identity who)throws Exception {
+  if(who.role()!=Identity.Role.TEACHER)throw new AccessFailure("FORBIDDEN","Chỉ giáo viên được thêm bài vào ngân hàng.");
+  String id=catalogText(req,"id",64,true).trim();
+  if(!id.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,63}"))throw new IllegalArgumentException("Mã bài chỉ gồm chữ, số, dấu _ và -, tối đa 64 ký tự.");
+  String title=catalogText(req,"title",200,true),topic=catalogText(req,"topic",100,true),difficulty=catalogText(req,"difficulty",30,true);
+  if(!Set.of("Dễ","Trung bình","Khó").contains(difficulty))throw new IllegalArgumentException("Độ khó không hợp lệ.");
+  ExerciseMode mode=ExerciseMode.parse(catalogText(req,"mode",30,true));
+  String statement=catalogText(req,"statement",12000,true),input=catalogText(req,"inputFormat",4000,true),output=catalogText(req,"outputFormat",4000,true);
+  String constraints=catalogText(req,"constraints",4000,false),template=catalogText(req,"template",32000,false),starter=catalogText(req,"starterCode",32000,mode==ExerciseMode.DEBUG_COLLAB);
+  String hints=catalogText(req,"hints",4000,false);
+  List<Object> raw=AssignmentJson.list(req.get("tests"));
+  if(raw.isEmpty()||raw.size()>50)throw new IllegalArgumentException("Cần từ 1 đến 50 testcase.");
+  List<Exercise.TestCase> tests=new ArrayList<>();boolean publicTest=false;
+  for(Object item:raw){
+   if(!(item instanceof Map<?,?>))throw new IllegalArgumentException("Testcase không hợp lệ.");
+   Map<String,Object> test=AssignmentJson.map(item);
+   String testInput=catalogText(test,"input",8000,false),expected=catalogText(test,"expectedOutput",8000,false);
+   Object weight=test.get("weight"),hidden=test.get("hidden");
+   if(!(weight instanceof Number n)||n.doubleValue()!=n.intValue()||n.intValue()<1||n.intValue()>100)throw new IllegalArgumentException("Trọng số testcase phải là số nguyên từ 1 đến 100.");
+   if(!(hidden instanceof Boolean))throw new IllegalArgumentException("Testcase cần xác định công khai hoặc ẩn.");
+   boolean secret=Boolean.TRUE.equals(hidden);publicTest|=!secret;
+   tests.add(new Exercise.TestCase(testInput,expected,((Number)weight).intValue(),secret));
+  }
+  if(!publicTest)throw new IllegalArgumentException("Cần ít nhất một testcase công khai để chạy thử.");
+  Exercise exercise=new Exercise(id,title,topic,difficulty,statement,input,output,constraints,template,hints,"",mode,starter,tests);
+  try{repo.createExercise(exercise);}catch(SQLException e){if(e.getErrorCode()==19)throw new AccessFailure("DUPLICATE_EXERCISE","Mã bài đã tồn tại. Hãy chọn mã khác.");throw e;}
+  return ok(requestId,AssignmentJson.mapOf("exercise",exercise.publicView(),"message","Đã thêm bài vào ngân hàng."));
+ }
+ private static String catalogText(Map<String,Object> req,String key,int max,boolean required){
+  Object value=req.get(key);if(value!=null&&!(value instanceof String))throw new IllegalArgumentException(key+" phải là chuỗi.");
+  String text=value==null?"":(String)value;
+  if(text.length()>max||text.getBytes(StandardCharsets.UTF_8).length>max*4)throw new IllegalArgumentException(key+" vượt giới hạn "+max+" ký tự.");
+  if(required&&text.isBlank())throw new IllegalArgumentException("Chưa nhập trường "+key+".");return text;
+ }
  private Map<String,Object> handlePractice(String requestId,String type,Map<String,Object> req,Identity who)throws Exception {
   if(type.equals("PRACTICE_RESULT")) {
    Map<String,Object> row=practice.get(AssignmentJson.text(req,"submissionId",""));
@@ -213,6 +288,21 @@ public final class AssignmentService implements AutoCloseable {
  }
  private static Map<String,Object> teacherTrialMap(TeacherTrialRecord t){return AssignmentJson.mapOf("id",t.id(),"exerciseId",t.exerciseId(),"roomId",t.roomId(),"teacherUsername",t.teacherUsername(),"submittedAt",t.submittedAt(),"status",t.status(),"score",t.score(),"maxScore",t.maxScore(),"verdict",t.verdict(),"passedTests",t.passedTests(),"totalTests",t.totalTests(),"feedback",t.feedback(),"durationMs",t.durationMillis());}
 
+ private List<Map<String,Object>> visibleContests(String room,Identity who,boolean owner)throws SQLException{
+  List<Map<String,Object>> list=new ArrayList<>();for(Map<String,Object> c:repo.listContests(room))if(owner||ContestDistributionRepository.canAccess(repo,String.valueOf(c.get("id")),who.userId())){if(!owner){int count=ContestDistributionRepository.allocatedCount(repo,String.valueOf(c.get("id")),who.userId());if(count>0)c.put("assignedProblemCount",count);}list.add(c);}return list;
+ }
+ private Map<String,Object> distributeContest(String requestId,Map<String,Object> req,Identity who,String session,String room,boolean owner)throws SQLException{
+  requireOwner(owner);String cid=AssignmentJson.text(req,"contestId","");Map<String,Object> c=repo.contest(cid);
+  if(c==null||!room.equals(c.get("roomId")))throw new AccessFailure("NOT_FOUND","Không tìm thấy kỳ thi trong lớp.");
+  if(System.currentTimeMillis()>=AssignmentJson.number(c,"endAt",0))throw new AccessFailure("CONTEST_CLOSED","Kỳ thi đã kết thúc.");
+  Set<String> ids=new LinkedHashSet<>();for(Object x:AssignmentJson.list(req.get("exerciseIds")))ids.add(String.valueOf(x));
+  if(ids.isEmpty()||!repo.contestExerciseIds(cid).containsAll(ids))throw new AccessFailure("INVALID_REQUEST","Chọn bài thuộc danh sách của kỳ thi này.");
+  Set<String> users=new LinkedHashSet<>();for(Object x:AssignmentJson.list(req.get("studentIds")))users.add(String.valueOf(x));
+  List<Identity> targets=new ArrayList<>();for(Identity i:gateway.contestStudents(session,room))if(users.remove(i.userId()))targets.add(i);
+  if(!users.isEmpty()||targets.isEmpty())throw new AccessFailure("INVALID_REQUEST","Chọn sinh viên hợp lệ trong lớp của bạn.");
+  ContestDistributionRepository.assign(repo,cid,targets,new ArrayList<>(ids));
+  return ok(requestId,AssignmentJson.mapOf("draws",ContestDistributionRepository.draws(repo,cid)));
+ }
  private Map<String,Object> createContest(String requestId,Map<String,Object> req,String roomId,Identity who,boolean teacherOwner)throws Exception {
   requireOwner(teacherOwner);
   String title=AssignmentJson.text(req,"title","").trim();if(title.isBlank()||title.length()>120)throw new AccessFailure("INVALID_REQUEST","Tên kỳ thi phải có 1-120 ký tự.");
@@ -224,11 +314,13 @@ public final class AssignmentService implements AutoCloseable {
   if(contestType.equals("TEAM_COLLAB"))throw new AccessFailure("CONTEST_TYPE_NOT_READY","Kỳ thi nhóm TEAM_COLLAB đang thuộc giai đoạn tiếp theo. Hiện chỉ hỗ trợ thi cá nhân; bài sửa lỗi cộng tác không bị chuyển thành bài cá nhân.");
   List<String> ids=new ArrayList<>();
   for(Object o:AssignmentJson.list(req.get("exerciseIds"))) {String id=String.valueOf(o).trim();if(!id.isBlank()&&!ids.contains(id))ids.add(id);}
-  // Legacy client compatibility: translate previously assigned IDs to their catalog exercise IDs.
+  // Hỗ trợ client cũ bằng cách đổi ID bài đã giao sang ID bài trong ngân hàng đề.
   if(ids.isEmpty())for(Object o:AssignmentJson.list(req.get("assignmentIds"))){String aid=String.valueOf(o).trim();if(aid.isBlank())continue;AssignmentRecord a=requireAssignmentVisible(aid,roomId,who,true);if(!a.createdByUserId().equals(who.userId()))throw new AccessFailure("FORBIDDEN","Chỉ dùng bài do giáo viên chủ phòng giao.");if(!ids.contains(a.exerciseId()))ids.add(a.exerciseId());}
   if(ids.isEmpty()||ids.size()>20)throw new AccessFailure("INVALID_REQUEST","Chọn từ 1 đến 20 bài trong ngân hàng.");
   for(String id:ids){Exercise e=repo.getExercise(id);if(e==null)throw new AccessFailure("NOT_FOUND","Bài trong ngân hàng không tồn tại: "+id+".");if(e.mode()!=ExerciseMode.BUILD_FROM_SCRATCH)throw new AccessFailure("INVALID_REQUEST","Bài "+id+" là DEBUG_COLLAB. Chọn contest nhóm khi tính năng TEAM_COLLAB được triển khai; hiện không thể đưa bài sửa lỗi vào kỳ thi cá nhân.");}
-  String id=UUID.randomUUID().toString();repo.createContestFromExercises(id,roomId,title,who.userId(),now,start,end,contestType,ids);
+  String distribution=AssignmentJson.text(req,"distributionMode","ALL").toUpperCase(Locale.ROOT);int count=AssignmentJson.integer(req,"problemsPerStudent",1);
+  if(!Set.of("ALL","RANDOM").contains(distribution)||("RANDOM".equals(distribution)&&(count<1||count>ids.size())))throw new AccessFailure("INVALID_REQUEST","Invalid number of random problems per student.");
+  String id=UUID.randomUUID().toString();repo.createContestFromExercises(id,roomId,title,who.userId(),now,start,end,contestType,ids,distribution,"RANDOM".equals(distribution)?count:0);
   return ok(requestId,AssignmentJson.mapOf("contestId",id,"contestType",contestType,"exerciseIds",ids,"message","Đã tạo kỳ thi trực tiếp từ ngân hàng bài."));
  }
  private synchronized Map<String,Object> submitContest(String requestId,Map<String,Object> req,String roomId,Identity who,boolean teacherOwner)throws Exception {
@@ -242,6 +334,7 @@ public final class AssignmentService implements AutoCloseable {
   if(!"INDIVIDUAL".equalsIgnoreCase(String.valueOf(contest.get("contestType"))))throw new AccessFailure("CONTEST_TYPE_NOT_READY","Kỳ thi nhóm chưa được bật; không nhận bài cá nhân cho contest này.");
   long now=System.currentTimeMillis(),start=((Number)contest.get("startAt")).longValue(),end=((Number)contest.get("endAt")).longValue();
   if(now<start)throw new AccessFailure("CONTEST_NOT_STARTED","Kỳ thi chưa bắt đầu.");if(now>=end)throw new AccessFailure("CONTEST_CLOSED","Kỳ thi đã kết thúc.");
+  if(!ContestDistributionRepository.studentProblems(repo,contestId,who).contains(exerciseId))throw new AccessFailure("FORBIDDEN","Problem was not assigned to this student.");
   String problemId=repo.contestProblemId(contestId,exerciseId);if(problemId==null)throw new AccessFailure("NOT_FOUND","Bài này không thuộc kỳ thi.");
   Exercise exercise=repo.getExercise(exerciseId);if(exercise==null)throw new AccessFailure("NOT_FOUND","Bài trong ngân hàng không còn tồn tại.");
   if(exercise.mode()!=ExerciseMode.BUILD_FROM_SCRATCH)throw new AccessFailure("INVALID_REQUEST","Bài DEBUG_COLLAB không thể nộp như bài cá nhân.");
@@ -267,7 +360,7 @@ public final class AssignmentService implements AutoCloseable {
   String key=AssignmentJson.text(req,"idempotencyKey","");
   if (key.isBlank() || key.length()>100) throw new AccessFailure("INVALID_REQUEST","idempotencyKey không hợp lệ.");
 
-  // Idempotent retry returns the original receipt even if the deadline has since passed.
+  // Gửi lại cùng yêu cầu sẽ trả biên nhận ban đầu, kể cả khi lúc gửi lại đã hết hạn.
   SubmissionRecord previous=repo.byIdempotency(key);
   if (previous!=null) {
    if (!previous.userId().equals(who.userId()) || !previous.assignmentId().equals(aid) || !previous.submissionMode().equals(submissionMode))
@@ -298,7 +391,7 @@ public final class AssignmentService implements AutoCloseable {
   SubmissionRecord sub=new SubmissionRecord(id,aid,roomId,who.userId(),who.username(),source,now,"QUEUED",0,100,"QUEUED",0,ex.tests().size(),"Đã nhận bài, đang chờ chấm.",0,submissionMode,key);
   repo.createSubmission(sub,contestId.isBlank()?null:contestId);
   if (!queue.offer(new GradingTask(id,TaskKind.PERSONAL))) {
-   // The receipt must never claim a non-enqueued submission is awaiting grading.
+   // Chỉ báo đang chờ chấm khi bài nộp thực sự đã được đưa vào hàng đợi.
    repo.saveResult(id,new GradingResult("INTERNAL_ERROR",0,100,0,ex.tests().size(),"Hàng đợi không nhận được bài sau khi lưu. Hãy liên hệ giảng viên.",0,List.of()));
    SubmissionRecord failed=repo.getSubmission(id);
    return ok(requestId,AssignmentJson.mapOf("submission",submissionMap(failed,false),"message","Bài đã lưu nhưng worker chưa nhận được tác vụ."));
@@ -333,51 +426,74 @@ public final class AssignmentService implements AutoCloseable {
    try{
     task=queue.take();
     activeTasks.incrementAndGet();
-    if(task.kind()==TaskKind.PRACTICE){
-     try {
-      practice.running(task.id());Map<String,Object> row=practice.get(task.id());if(row==null)continue;
-      Exercise exercise=repo.getExercise(String.valueOf(row.get("exerciseId")));if(exercise==null)throw new IllegalStateException("Bài không tồn tại.");
-      boolean run=Boolean.TRUE.equals(row.get("isRun"));List<Exercise.TestCase> tests=exercise.tests().stream().filter(t->!run||!t.hidden()).toList();
-      practice.finish(task.id(),sandbox.grade("practice-"+task.id(),String.valueOf(row.get("sourceCode")),tests,100));
-     }catch(Exception ex){try{practice.finish(task.id(),new GradingResult("INTERNAL_ERROR",0,100,0,0,"Dịch vụ chấm chưa sẵn sàng. Hãy kiểm tra Docker/sandbox rồi thử lại.",0,List.of()));}catch(Exception ignored){}}
-    }else if(task.kind()==TaskKind.SHARED){
-     try{
-      repo.markSharedCheckRunning(task.id());
-      SharedCheckRun run=repo.getSharedCheck(task.id());
-      if(run==null)continue;
-      AssignmentRecord a=repo.getAssignment(run.assignmentId());
-      Exercise e=a==null?null:repo.getExercise(a.exerciseId());
-      if(e==null){repo.saveSharedCheckResult(task.id(),"INTERNAL_ERROR","INTERNAL_ERROR",0,100,0,0,"Không tìm thấy bài tập để chấm.",0);continue;}
-      GradingResult result=sandbox.grade("check-"+run.id(),run.source(),e.tests(),100);
-      String state=checkState(result.verdict());
-      repo.saveSharedCheckResult(task.id(),state,result.verdict(),result.score(),result.maxScore(),result.passed(),result.total(),safe(result.feedback()),result.durationMillis());
-     }catch(Exception ex){
-      try{repo.saveSharedCheckResult(task.id(),"INTERNAL_ERROR","INTERNAL_ERROR",0,100,0,0,"Không thể hoàn tất kiểm tra code chung. Mã lỗi: "+UUID.randomUUID().toString().substring(0,8),0);}catch(Exception ignored){}
-     }
-    }else if(task.kind()==TaskKind.CONTEST){
-     String id=task.id();
-     try{
-      repo.markContestSubmissionRunning(id);ContestSubmissionRecord submission=repo.getContestSubmission(id);if(submission==null)continue;
-      Exercise e=repo.getExercise(submission.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài trong ngân hàng.");
-      GradingResult result=sandbox.grade("contest-"+submission.id(),submission.source(),e.tests(),submission.maxScore());repo.saveContestSubmissionResult(id,result);
-     }catch(Exception ex){try{repo.saveContestSubmissionResult(id,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể hoàn tất chấm bài thi. Mã lỗi: "+UUID.randomUUID().toString().substring(0,8),0,List.of()));}catch(Exception ignored){}}
-    }else if(task.kind()==TaskKind.TRIAL){
-     String id=task.id();
-     try{
-      repo.markTeacherTrialRunning(id);TeacherTrialRecord trial=repo.getTeacherTrial(id);if(trial==null)continue;
-      Exercise e=repo.getExercise(trial.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài trong ngân hàng.");
-      GradingResult result=sandbox.grade("teacher-trial-"+trial.id(),trial.source(),e.tests(),100);repo.saveTeacherTrialResult(id,result);
-     }catch(Exception ex){try{repo.saveTeacherTrialResult(id,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể hoàn tất lượt thử. Mã lỗi: "+UUID.randomUUID().toString().substring(0,8),0,List.of()));}catch(Exception ignored){}}
-    }else{
-     String id=task.id();
-     try{
-      repo.markRunning(id);SubmissionRecord submission=repo.getSubmission(id);if(submission==null)continue;
-      AssignmentRecord a=repo.getAssignment(submission.assignmentId());Exercise e=a==null?null:repo.getExercise(a.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài tập.");
-      GradingResult result=sandbox.grade(submission.id(),submission.source(),e.tests(),100);repo.saveResult(id,result);
-     }catch(Exception ex){try{repo.saveResult(id,new GradingResult("INTERNAL_ERROR",0,100,0,0,"Không thể hoàn tất chấm bài. Mã lỗi: "+UUID.randomUUID().toString().substring(0,8),0,List.of()));}catch(Exception ignored){}}
+    GradingResult result;
+    try {
+     result=gradeTask(task);
+    } catch(Exception failure) {
+     if(closed.get() || failure instanceof InterruptedException){Thread.currentThread().interrupt();break;}
+     gateway.logService("Lỗi chấm kind="+task.kind()+" submission="+task.id()+" cause="+failure.getClass().getSimpleName());
+     result=new GradingResult("INTERNAL_ERROR",0,100,0,0,"Dịch vụ chấm gặp lỗi. Mã bài nộp: "+task.id(),0,List.of());
     }
+    if(result!=null)persistUntilSaved(task,result);
    }catch(InterruptedException e){if(closed.get())break;}
    finally{if(task!=null)activeTasks.decrementAndGet();}
+  }
+ }
+ private GradingResult gradeTask(GradingTask task)throws Exception {
+    if(task.kind()==TaskKind.PRACTICE){
+      practice.running(task.id());Map<String,Object> row=practice.get(task.id());if(row==null)return null;
+      Exercise exercise=repo.getExercise(String.valueOf(row.get("exerciseId")));if(exercise==null)throw new IllegalStateException("Bài không tồn tại.");
+      boolean run=Boolean.TRUE.equals(row.get("isRun"));List<Exercise.TestCase> tests=exercise.tests().stream().filter(t->!run||!t.hidden()).toList();
+      return sandbox.grade("practice-"+task.id(),String.valueOf(row.get("sourceCode")),tests,100);
+    }else if(task.kind()==TaskKind.SHARED){
+      repo.markSharedCheckRunning(task.id());
+      SharedCheckRun run=repo.getSharedCheck(task.id());
+      if(run==null)return null;
+      AssignmentRecord a=repo.getAssignment(run.assignmentId());
+      Exercise e=a==null?null:repo.getExercise(a.exerciseId());
+      if(e==null)throw new IllegalStateException("Không tìm thấy bài tập để chấm.");
+      return sandbox.grade("check-"+run.id(),run.source(),e.tests(),100);
+    }else if(task.kind()==TaskKind.CONTEST){
+     String id=task.id();
+      repo.markContestSubmissionRunning(id);ContestSubmissionRecord submission=repo.getContestSubmission(id);if(submission==null)return null;
+      Exercise e=repo.getExercise(submission.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài trong ngân hàng.");
+      return sandbox.grade("contest-"+submission.id(),submission.source(),e.tests(),submission.maxScore());
+    }else if(task.kind()==TaskKind.TRIAL){
+     String id=task.id();
+      repo.markTeacherTrialRunning(id);TeacherTrialRecord trial=repo.getTeacherTrial(id);if(trial==null)return null;
+      Exercise e=repo.getExercise(trial.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài trong ngân hàng.");
+      return sandbox.grade("teacher-trial-"+trial.id(),trial.source(),e.tests(),100);
+    }else{
+     String id=task.id();
+      repo.markRunning(id);SubmissionRecord submission=repo.getSubmission(id);if(submission==null)return null;
+      AssignmentRecord a=repo.getAssignment(submission.assignmentId());Exercise e=a==null?null:repo.getExercise(a.exerciseId());if(e==null)throw new IllegalStateException("Không tìm thấy bài tập.");
+      return sandbox.grade(submission.id(),submission.source(),e.tests(),100);
+    }
+ }
+ private void persistUntilSaved(GradingTask task,GradingResult result)throws InterruptedException {
+  int failures=0;
+  try {
+   while(!closed.get()) {
+    try {
+     switch(task.kind()) {
+      case PRACTICE -> practice.finish(task.id(),result);
+      case PERSONAL -> repo.saveResult(task.id(),result);
+      case CONTEST -> repo.saveContestSubmissionResult(task.id(),result);
+      case TRIAL -> repo.saveTeacherTrialResult(task.id(),result);
+      case SHARED -> repo.saveSharedCheckResult(task.id(),checkState(result.verdict()),result.verdict(),result.score(),result.maxScore(),result.passed(),result.total(),safe(result.feedback()),result.durationMillis());
+     }
+     if(failures>0)gateway.logService("Đã lưu lại kết quả kind="+task.kind()+" submission="+task.id()+" verdict="+result.verdict());
+     return;
+    } catch(Exception failure) {
+     if(failures++==0)pendingResultWrites.incrementAndGet();
+     if(failures==1||failures%30==0)gateway.logService("Chờ lưu kết quả kind="+task.kind()+" submission="+task.id()+" verdict="+result.verdict()+" attempt="+failures+" cause="+failure.getClass().getSimpleName());
+     // Retain the original verdict on this bounded worker; retry writes, not grading.
+     Thread.sleep(1000);
+    }
+   }
+  } finally {
+   if(failures>0)pendingResultWrites.decrementAndGet();
+   if(closed.get())gateway.logService("Dừng khi chờ lưu submission="+task.id()+"; công việc chưa hoàn tất sẽ được phục hồi khi khởi động lại.");
   }
  }
  private List<Identity> currentRoomStudents(String actor,String room){List<Identity> students=new ArrayList<>();for(String item:gateway.codeSnapshot(actor,room).members()){int split=item.indexOf(" | ");if(split<1)continue;try{Identity member=gateway.identity(item.substring(0,split));if(member.role()==Identity.Role.STUDENT)students.add(member);}catch(SecurityException ignored){}}students.sort(Comparator.comparing(Identity::username,String.CASE_INSENSITIVE_ORDER));return students;}
@@ -418,7 +534,7 @@ public final class AssignmentService implements AutoCloseable {
  private static Map<String,Object> error(String id,String code,String message){return AssignmentJson.mapOf("requestId",id,"status","ERROR","errorCode",code,"message",message==null?"Yêu cầu thất bại.":message);}
  private static String safe(String m){if(m==null)return "unknown";return m.length()>250?m.substring(0,250):m;}
  @Override public void close(){if(!closed.compareAndSet(false,true))return;for(Thread t:workers)t.interrupt();}
- /** Internal classroom integration; this is never exposed directly as a browser endpoint. */
+ /** Dùng nội bộ cho phòng học, không mở thành API để trình duyệt gọi trực tiếp. */
  public Exercise classroomExercise(String id) throws SQLException { return repo.getExercise(id); }
  private enum TaskKind { PERSONAL, SHARED, CONTEST, TRIAL, PRACTICE }
  private record GradingTask(String id,TaskKind kind){}

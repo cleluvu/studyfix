@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 export function cryptoRandomId() {
   return (
@@ -17,7 +17,7 @@ export async function sha256(message) {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
-  // Small portable SHA-256 fallback for a plain-HTTP LAN development origin.
+  // Tự tính SHA-256 khi chạy thử qua HTTP trong mạng LAN và trình duyệt không hỗ trợ sẵn.
   const K = [
     1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993,
     2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987,

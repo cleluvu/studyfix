@@ -13,6 +13,20 @@ let lastAutoCheck = 0;
 let generation = 0;
 let mutating = 0;
 let autoTimer;
+let exercisePicker=null,pickerRequest=0;
+const exerciseSearchKey=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d").replace(/Đ/g,"D").toLocaleLowerCase();
+function pickerRows(items,query=""){
+  const words=exerciseSearchKey(query).trim().split(/\s+/).filter(Boolean);
+  const matches=items.filter(e=>{const text=exerciseSearchKey(`${e.id} ${e.title}`);return words.every(word=>text.includes(word));});
+  return {count:matches.length,html:matches.map(e=>`<div class="history-entry"><strong>${esc(e.id)}</strong><div>${esc(e.title)}</div>${btn("Dùng starter", "classroom-select-exercise", "btn-primary btn-sm", `data-id="${esc(e.id)}"`)}</div>`).join("")||'<p class="empty-slim">Không tìm thấy bài phù hợp. Thử mã bài hoặc tên khác.</p>'};
+}
+function filterExercisePicker(query){
+  if(!exercisePicker||exercisePicker.token!==state.token||exercisePicker.roomId!==state.room?.roomId)return;
+  const results=pickerRows(exercisePicker.items,query);
+  const list=document.getElementById("classroom-exercise-results"),count=document.getElementById("classroom-exercise-count");
+  if(list)list.innerHTML=results.html;
+  if(count)count.textContent=`Hiển thị ${results.count}/${exercisePicker.items.length} bài`;
+}
 
 function draftKey(kind, round) {
   return `studyfix.classroom.${state.identity?.userId}.${state.room?.roomId}.${kind}.${round}`;
@@ -22,7 +36,7 @@ function draft(kind, remote) {
   const key = draftKey(kind, kind === "master" ? 0 : state.classroom.round);
   if (!state.classroomDrafts[key]) {
     let stored;
-    try { stored = JSON.parse(sessionStorage.getItem(key) || "null"); } catch (_) { /* Ignore invalid local drafts. */ }
+    try { stored = JSON.parse(sessionStorage.getItem(key) || "null"); } catch (_) { /* Bỏ qua bản nháp lưu trên máy nếu dữ liệu bị lỗi. */ }
     state.classroomDrafts[key] = stored || { code: remote.code, baseVersion: remote.version, dirty: false };
   }
   const d = state.classroomDrafts[key];
@@ -62,7 +76,7 @@ function localRecovery() {
     if (!key?.startsWith(prefix)) continue;
     const round = Number(key.slice(prefix.length));
     if (round === state.classroom.round) continue;
-    try { if (JSON.parse(sessionStorage.getItem(key))?.dirty) old.push({ key, round }); } catch (_) { /* Invalid local data is ignored. */ }
+    try { if (JSON.parse(sessionStorage.getItem(key))?.dirty) old.push({ key, round }); } catch (_) { /* Bỏ qua dữ liệu lưu trên máy nếu không đọc được. */ }
   }
   return old.length ? `<section class="notice-box warn"><strong>Nháp chưa lưu của vòng trước vẫn còn trong trình duyệt</strong><div class="tool-row">${old.map(x => btn(`Lấy nháp vòng ${x.round}`, "classroom-local-recovery", "btn-soft btn-sm", `data-key="${esc(x.key)}"`)).join("")}</div></section>` : "";
 }
@@ -101,10 +115,10 @@ export function renderClassroom(chat, members) {
   const active = !["WAITING", "ENDED"].includes(c.phase);
   const control = owner ? `<div class="tool-row">
     ${c.phase === "WAITING" ? btn("Bắt đầu giảng bài", "classroom-action", "btn-primary", 'data-op="START"') : ""}
-    ${c.phase === "LECTURE" ? `${btn("Chọn code lỗi từ ngân hàng", "classroom-pick-exercise", "btn-soft")}${btn("Tách nhánh cho cả lớp", "classroom-action", "btn-primary", 'data-op="FORK"')}` : ""}
+    ${c.phase === "LECTURE" ? `${btn("Chọn code", "classroom-pick-exercise", "btn-soft")}${btn("Bắt đầu làm", "classroom-action", "btn-primary", 'data-op="FORK"')}` : ""}
     ${c.phase === "BRANCHING" ? btn("Dừng sửa và chọn lời giải", "classroom-action", "btn-primary", 'data-op="FREEZE"') : ""}
     ${c.phase === "MERGING" ? btn("Cho học sinh sửa tiếp", "classroom-action", "btn-soft", 'data-op="RESUME"') : ""}
-    ${active ? btn("Kết thúc phiên", "classroom-action", "btn-danger", 'data-op="END"') : ""}
+    ${active ? btn("Kết thúc bài làm", "classroom-action", "btn-danger", 'data-op="END"') : ""}
     ${c.phase === "ENDED" ? btn("Tạo phiên học tiếp theo", "classroom-action", "btn-primary", 'data-op="NEW_SESSION"') : ""}
   </div>` : "";
   const b = myBranch();
@@ -149,6 +163,7 @@ async function runCheck() {
   lastAutoCheck = Date.now();
 }
 export function classroomInput(el) {
+  if(el.id==="classroom-exercise-query"){filterExercisePicker(el.value);return;}
   if (el.id === "meeting-query") {state.meetingQuery=el.value;state.meetingGridPage=0;render();return;}
   if (!["classroom-master", "classroom-branch"].includes(el.id)) return;
   const kind = el.id === "classroom-master" ? "master" : "branch";
@@ -186,16 +201,25 @@ export async function classroomClick(action, d) {
     }
     case "classroom-refresh": await loadClassroom();break;
     case "classroom-action":
-      if (d.op === "END" && !confirm("Kết thúc phiên học? Nháp chưa lưu của học sinh sẽ không được ghi lên server sau khi kết thúc.")) return;
+      if (d.op === "END" && !confirm("Kết thúc bài làm? Nháp chưa lưu của học sinh sẽ không được ghi lên server sau khi kết thúc.")) return;
       if (d.op === "FORK" && draft("master", {code: state.room.code, version: state.room.version}).dirty) throw new Error("Hãy lưu Master trước khi tách nhánh.");
       await sendAction(d.op);state.meetingView=["FORK","FREEZE","RESUME"].includes(d.op)?"grid":"master";render();break;
     case "classroom-save-master": await save("master");toast("Đã lưu Master.", "success");break;
     case "classroom-save-branch": await save("branch");break;
     case "classroom-run-check": await runCheck();break;
     case "classroom-pick-exercise": {
+      const request=++pickerRequest,token=state.token,roomId=state.room?.roomId;
       const r = await assignment("CATALOG_LIST", { mode: "DEBUG_COLLAB" });
-      dialog("Chọn bài sửa lỗi", `<div class="history-list">${(r.exercises || []).map(e => `<div class="history-entry"><strong>${esc(e.id)}</strong><div>${esc(e.title)}</div>${btn("Dùng starter", "classroom-select-exercise", "btn-primary btn-sm", `data-id="${esc(e.id)}"`)}</div>`).join("")}</div>`);break;
+      if(request!==pickerRequest||token!==state.token||roomId!==state.room?.roomId)return;
+      exercisePicker={token,roomId,items:r.exercises||[]};const results=pickerRows(exercisePicker.items);
+      dialog("Chọn bài sửa lỗi", `<label class="classroom-exercise-label" for="classroom-exercise-query">Tìm theo mã hoặc tên bài</label><div class="classroom-exercise-search"><input id="classroom-exercise-query" class="field" type="search" maxlength="160" autocomplete="off">${btn("Xóa tìm kiếm","classroom-exercise-clear","btn-soft btn-sm",'type="button"')}</div><p id="classroom-exercise-count" class="subtle-text" role="status" aria-live="polite">Hiển thị ${results.count}/${exercisePicker.items.length} bài</p><div id="classroom-exercise-results" class="history-list classroom-exercise-results">${results.html}</div>`);
+      const search=document.getElementById("classroom-exercise-query");
+      // Dialogs are attached to body, outside #app's delegated input listener.
+      search?.addEventListener("input",event=>classroomInput(event.target));
+      search?.addEventListener("compositionend",event=>classroomInput(event.target));
+      search?.focus();break;
     }
+    case "classroom-exercise-clear":{const input=document.getElementById("classroom-exercise-query");if(input){input.value="";filterExercisePicker("");input.focus();}break;}
     case "classroom-select-exercise":
       if (draft("master", {code:state.room.code, version:state.room.version}).dirty) throw new Error("Master có nháp chưa lưu. Lưu hoặc chọn dùng bản server trước khi đổi bài.");
       if (!confirm("Nạp starter của bài này vào Master? Phiên bản Master hiện tại được giữ trong lịch sử.")) return;

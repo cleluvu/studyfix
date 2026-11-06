@@ -12,7 +12,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.regex.*;
 
-/** Real localhost test: two exercise modes, shared checks, private submissions, contests and port-5002 authorization. */
+/** Test thật trên localhost cho hai loại bài tập, chấm code chung, bài nộp riêng, cuộc thi và phân quyền cổng 5002. */
 public final class AssignmentProtocolIntegrationTest {
  private static int checks;
  private static void check(boolean b,String text){checks++;if(!b)throw new AssertionError(text);}

@@ -1,4 +1,4 @@
-// Shared modal lifecycle. Kept separate so dynamically mounted dialogs are handled consistently.
+// Xử lý chung việc mở và đóng hộp thoại, kể cả hộp thoại được thêm sau khi trang đã tải.
 export function modal(content) {
   clearModal();
   const el = document.createElement("div");

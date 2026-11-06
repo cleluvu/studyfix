@@ -1,4 +1,5 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
+import {isAdminPage} from "./roles.js";
 
 export const state = {
   token: sessionStorage.getItem("studyfix.web.token") || "",
@@ -21,6 +22,7 @@ export const state = {
   customRoomCodes: false,
   newRoomCode: "",
   joinRoomCode: "",
+  pendingAdmission: null,
   assignments: [],
   catalog: [],
   students: [],
@@ -51,6 +53,8 @@ export const state = {
   contestTitle: "",
   contestStart: 0,
   contestDuration: 60,
+  contestDistribution: "ALL",
+  contestRandomCount: 1,
   selectedContest: null,
   contestDetail: null,
   contestWork: null,
@@ -90,15 +94,16 @@ export const state = {
   meetingClosed: false,
 };
 
-// A reload restores the view only after server membership and identity are checked.
+// Chỉ khôi phục màn hình sau khi tải lại nếu server đã xác nhận danh tính và thành viên phòng.
 export function rememberView() {
   if(!state.identity)return;
   try {sessionStorage.setItem("studyfix.web.view",JSON.stringify({userId:state.identity.userId,page:state.page,exerciseMode:state.exerciseMode,roomId:state.room?.roomId||""}));}catch(_){}
 }
 export function restoreView() {
-  state.page="overview";
+  state.page=state.identity?.role==="TEACHER"?"admin":"overview";
   try {
     const saved=JSON.parse(sessionStorage.getItem("studyfix.web.view")||"null");
+    if(saved?.userId===state.identity?.userId&&isAdminPage(saved.page)&&state.identity.role==="TEACHER"){state.page=saved.page==="admin-attendance"?"admin-connections":saved.page;return state.page;}
     if(saved?.userId===state.identity?.userId&&saved.page==="exercises"&&saved.exerciseMode!=="room") {
       state.exerciseMode="practice";state.page="exercises";return state.page;
     }

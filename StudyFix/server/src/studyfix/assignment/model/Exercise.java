@@ -13,7 +13,7 @@ public record Exercise(String id, String title, String topic, String difficulty,
         tests = List.copyOf(tests);
     }
 
-    /** Compatibility constructor: existing catalog entries remain build-from-scratch exercises. */
+    /** Hàm tạo tương thích dữ liệu cũ: bài trong danh sách cũ vẫn được xem là bài lập trình từ đầu. */
     public Exercise(String id, String title, String topic, String difficulty,
                     String statement, String inputFormat, String outputFormat,
                     String constraints, String template, String hints,
@@ -25,7 +25,7 @@ public record Exercise(String id, String title, String topic, String difficulty,
 
     public record TestCase(String input, String expected, int weight, boolean hidden) {}
 
-    /** Public-safe view. Never include the reference solution or hidden expected outputs. */
+    /** Dữ liệu được phép công khai, không chứa lời giải tham khảo hay đáp án test ẩn. */
     public Map<String, Object> publicView() {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("id", id);

@@ -4,7 +4,7 @@ import studyfix.assignment.protocol.AssignmentJson;
 import java.sql.*;
 import java.util.*;
 
-/** Durable classroom aggregates. All writes use Store's serialized, rollback-safe transaction. */
+/** Lưu dữ liệu phòng học vào database. Các lần ghi chạy tuần tự qua Store và được hoàn tác nếu có lỗi. */
 final class ClassroomRepository {
     record Session(String room, String phase, int round, String exerciseId, long baseVersion, long updatedAt) { }
     record Branch(String room, int round, String userId, String username, String name,
@@ -27,7 +27,7 @@ final class ClassroomRepository {
             s.execute("CREATE INDEX IF NOT EXISTS classroom_chat_room ON classroom_chat(room_id,id DESC)");
             s.execute("INSERT OR IGNORE INTO classroom_schema(version) VALUES(1)");
             s.execute("INSERT OR IGNORE INTO classroom_schema(version) VALUES(2)");
-            // A stopped process cannot claim that an unfinished evaluation succeeded.
+            // Khi chạy lại chương trình, không được xem lượt chấm còn dang dở là đã thành công.
             s.execute("UPDATE classroom_checks SET status='JUDGE_ERROR',result='{\"verdict\":\"JUDGE_ERROR\",\"feedback\":\"Server đã dừng trong lúc chấm. Hãy chạy kiểm tra lại.\"}' WHERE status IN ('QUEUED','RUNNING')");
         }
     }

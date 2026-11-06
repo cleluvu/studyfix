@@ -51,7 +51,7 @@ function watchTracks(stream) {
 }
 async function makePeer(peerId) {
   if (connections.has(peerId)) return connections.get(peerId);
-  const pc = new RTCPeerConnection({iceServers:[]}); // LAN peers; no third-party signaling or media service.
+  const pc = new RTCPeerConnection({iceServers:[]}); // Kết nối các máy trong mạng LAN, không dùng dịch vụ báo hiệu hay truyền media bên ngoài.
   const entry = {pc, stream:new MediaStream(), senders:{}, offered:false};
   connections.set(peerId, entry);
   pc.onicecandidate = e => {if(e.candidate && state.callJoined) signal("ICE",{toPeerId:peerId,payload:JSON.stringify(e.candidate.toJSON())}).catch(err => {state.callError=err.message;});};
@@ -66,9 +66,9 @@ async function makePeer(peerId) {
   return entry;
 }
 async function bindSenders(entry, isOfferer) {
-  // Answerers must use the channels created by setRemoteDescription(offer).
-  // Pre-creating addTransceiver channels here leaves their senders unassociated
-  // with the offer's m-lines, so only the offerer's media is transmitted.
+  // Bên trả lời phải dùng các kênh do setRemoteDescription(offer) tạo ra.
+  // Nếu tự tạo kênh bằng addTransceiver ở đây, bên gửi sẽ không khớp
+  // với kênh trong offer, khiến chỉ bên tạo offer gửi được âm thanh và hình ảnh.
   for (const kind of ["audio", "video"]) {
     let channel = entry.pc.getTransceivers().find(t =>
       !t.stopped && t.receiver.track.kind === kind && (isOfferer || t.mid !== null));
@@ -92,7 +92,7 @@ export async function leaveCall(notify = true) {
   state.callLocal?.getTracks().forEach(t => t.stop());state.callLocal = null;
   for (const id of [...connections.keys()]) dropPeer(id);
   state.callStreams = new Map();state.callError = "";
-  if (notify && joined && state.token && state.room) try {await signal("LEAVE");} catch (_) { /* Server also removes departed room members. */ }
+  if (notify && joined && state.token && state.room) try {await signal("LEAVE");} catch (_) { /* Server cũng tự dọn thành viên đã rời phòng. */ }
   refresh();
 }
 export async function toggleDevice(kind) {
@@ -117,7 +117,7 @@ export async function toggleDevice(kind) {
   } finally {busy = false;}
 }
 export function pollCall() {
-  // Device toggles and the background poll may overlap; process each signal once.
+  // Bật/tắt thiết bị có thể trùng lúc lấy tín hiệu nền, nên mỗi tín hiệu chỉ được xử lý một lần.
   const pending = pollChain.catch(() => {}).then(pollCallOnce);
   pollChain = pending;
   return pending;

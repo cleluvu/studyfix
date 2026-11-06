@@ -1,4 +1,4 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
 
 import { state } from "./state.js";
 
@@ -25,8 +25,8 @@ export async function api(path, options = {}) {
     payload = await response.json();
   } catch (_) {}
   if (response.status === 401 && state.token) {
-    // Decoupled from features/auth/auth.js to avoid a core<->feature import cycle:
-    // auth.js listens for this event and performs the actual logout.
+    // Phát sự kiện thay vì import auth.js trực tiếp để tránh vòng phụ thuộc.
+    // auth.js nhận sự kiện này rồi thực hiện đăng xuất.
     document.dispatchEvent(new CustomEvent("studyfix:unauthorized"));
     throw new Error(payload.message || "Phiên đăng nhập hết hạn.");
   }
@@ -35,7 +35,7 @@ export async function api(path, options = {}) {
       payload.message || `Yêu cầu thất bại (${response.status}).`,
     );
     error.status = response.status;
-    error.code = payload.error || "";
+    error.code = payload.error || payload.errorCode || "";
     throw error;
   }
   return payload;
@@ -46,8 +46,9 @@ export async function assignment(type, data = {}) {
     method: "POST",
     body: { type, ...data },
   });
-  if (result.status !== "OK")
-    throw new Error(result.message || "Nghiệp vụ bài tập thất bại.");
+  if (result.status !== "OK"){
+    const error=new Error(result.message || "Nghiệp vụ bài tập thất bại.");error.code=result.errorCode||"";throw error;
+  }
   return result.data || {};
 }
 

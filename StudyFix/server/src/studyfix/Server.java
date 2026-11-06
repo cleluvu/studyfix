@@ -87,12 +87,16 @@ public final class Server implements AutoCloseable {
             if(e.getMessage()!=null&&e.getMessage().contains("rooms.code_key"))throw new IllegalStateException("Mã phòng này đang được sử dụng. Hãy chọn mã khác.");
             throw e;
         }
-        rooms.put(room.getRoomId(), room); log("Tạo phòng " + room.getRoomId() + " owner=" + owner.userId()); return room;
+        rooms.put(room.getRoomId(), room);
+        if(store.management()!=null)store.management().syncClass(room.getRoomId(),room.getRoomCode(),owner.userId(),true);
+        log("Tạo phòng " + room.getRoomCode() + " [ID=" + room.getRoomId() + "] bởi "
+                + owner.displayName() + " (" + owner.username() + ") userId=" + owner.userId());
+        return room;
     }
     Room findRoom(String code) {
         String key=RoomCode.key(code);
         for(Room room:rooms.values())if(RoomCode.key(room.getRoomCode()).equals(key)&&!room.isExpired())return room;
-        // Internal numeric IDs remain accepted by existing native clients/integrations.
+        // Vẫn chấp nhận ID số nội bộ để client Java và các module tích hợp cũ dùng được.
         Room legacy=rooms.get(code);return legacy!=null&&!legacy.isExpired()?legacy:null;
     }
     List<String> deleteRoom(Identity owner,String id) throws java.sql.SQLException {
@@ -102,12 +106,12 @@ public final class Server implements AutoCloseable {
         synchronized(room) {
             if(!room.isOwner(owner))throw new SecurityException("Chỉ giáo viên tạo phòng được xóa phòng.");
             if(room.isExpired())throw new IllegalArgumentException("Phòng đã được xóa.");
-            // Commit first: a failed write must leave the room usable.
+            // Ghi database thành công trước; nếu ghi lỗi thì phòng vẫn phải dùng được.
             store.expireRoom(id);
             members=room.memberDetails().stream().map(Room.MemberView::sessionId).toList();
             room.expire();rooms.remove(id,room);
         }
-        // Client commands acquire client -> room locks. Never detach under the room lock.
+        // Lệnh lấy khóa client trước rồi đến khóa phòng. Không tách thành viên khi đang giữ khóa phòng để tránh khóa chéo.
         for(String session:members) {
             ClientHandler client=clients.get(session);
             if(client!=null)client.leaveDeletedRoom(room);
@@ -134,12 +138,15 @@ public final class Server implements AutoCloseable {
         return new Snapshot(isRunning(), port(), clients.size(), list, logs);
     }
     public StudyFixGateway gateway() { return new StudyFixGateway(this); }
-    /** Relay used by authenticated handlers to issue one-time screen-share tickets. */
+    /** Relay cấp vé chia sẻ màn hình dùng một lần cho kết nối đã đăng nhập. */
     public ScreenShareRelay screenShare() { return screenShare; }
     void addDepartureListener(StudyFixGateway.DepartureListener listener) { departureListeners.add(listener); }
     void removeDepartureListener(StudyFixGateway.DepartureListener listener) { departureListeners.remove(listener); }
     void departed(String session, Identity identity, String room, String reason) {
-        log("Rời phòng " + room + " session=" + session + " lý do=" + reason);
+        Room current = rooms.get(room);
+        log("Rời phòng " + (current == null ? room : current.getRoomCode()) + " [ID=" + room + "] người dùng="
+                + (identity == null ? "Chưa đăng nhập" : identity.displayName() + " (" + identity.username() + ")")
+                + " session=" + session + " lý do=" + reason);
         for (var listener : departureListeners) {
             try { listener.departed(session, identity, room, reason); }
             catch (RuntimeException e) { log("Lỗi callback rời phòng: " + e); }
@@ -147,7 +154,7 @@ public final class Server implements AutoCloseable {
     }
     @Override public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        // Stop image sockets first so no stream keeps running while the control server shuts down.
+        // Đóng socket truyền ảnh trước để không còn luồng chia sẻ chạy khi server điều khiển đang tắt.
         screenShare.close();
         try { listener.close(); } catch (IOException ignored) { }
         try { if (acceptThread != null) acceptThread.join(5000); }

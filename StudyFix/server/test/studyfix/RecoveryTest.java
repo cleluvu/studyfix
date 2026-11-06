@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 
-/** Regressions for committed JDBC cleanup failures and the final admin snapshot. */
+/** Kiểm tra lại lỗi dọn JDBC sau commit và bản chụp trạng thái cuối của giao diện quản lý. */
 public final class RecoveryTest {
     private static int checks;
     private static void check(boolean value, String message) {
@@ -137,6 +137,15 @@ public final class RecoveryTest {
                             && latest.rooms().get(0).members().size() == 2 && latest.rooms().get(0).queue().size() == 1;
                 });
                 check(true, "Admin renders live members, editor and waiting queue before Stop");
+                onEdt(() -> {
+                    DefaultTableModel table = (DefaultTableModel) field(admin[0], "rows");
+                    check(table.findColumn("Mã phòng") >= 0 && table.findColumn("ID nội bộ") >= 0,
+                            "Admin distinguishes public room code and internal ID");
+                    check(String.valueOf(table.getValueAt(0, table.findColumn("Giáo viên tạo phòng"))).contains("teacher"),
+                            "Admin resolves room owner to a readable account");
+                    check(((JTextArea) field(admin[0], "code")).getText().contains("retained-history"),
+                            "Admin automatically displays newest Master revision");
+                });
                 Server.Snapshot[] old = {null};
                 onEdt(() -> { old[0] = (Server.Snapshot) field(admin[0], "latest"); ((JButton) field(admin[0], "stop")).doClick(); });
                 waitEdt(() -> {
@@ -145,8 +154,9 @@ public final class RecoveryTest {
                 });
                 onEdt(() -> {
                     DefaultTableModel rows = (DefaultTableModel) field(admin[0], "rows");
-                    check(rows.getRowCount() == 1 && rows.getValueAt(0, 3) == null
-                            && ((List<?>) rows.getValueAt(0, 4)).isEmpty() && ((List<?>) rows.getValueAt(0, 5)).isEmpty(),
+                    check(rows.getRowCount() == 1 && rows.getValueAt(0, rows.findColumn("Người giữ quyền")) == null
+                            && ((List<?>) rows.getValueAt(0, rows.findColumn("Thành viên (session | tên)"))).isEmpty()
+                            && ((List<?>) rows.getValueAt(0, rows.findColumn("Hàng đợi"))).isEmpty(),
                             "Admin final table clears editor, members and queue");
                     check(((JLabel) field(admin[0], "status")).getText().contains("Kết nối: 0")
                             && !((JButton) field(admin[0], "stop")).isEnabled(), "Admin stopped status reports zero connections");

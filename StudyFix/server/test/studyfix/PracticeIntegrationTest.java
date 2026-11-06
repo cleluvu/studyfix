@@ -8,7 +8,7 @@ import java.util.*;
 import static studyfix.ClassroomIntegrationTest.*;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Real HTTP/auth/SQLite/worker tests. AC fixtures test persistence, not a simulated production grader. */
+/** Test HTTP, đăng nhập, SQLite và luồng chấm thật. Dữ liệu mẫu đạt dùng để kiểm tra lưu trữ, không đại diện cho bộ chấm chính thức. */
 public final class PracticeIntegrationTest {
     static Response request(String base,String token,String type,Map<String,Object> fields)throws Exception {
         Map<String,Object> body=new LinkedHashMap<>(fields);body.put("type",type);return call(base,"/api/assignments",token,body);
@@ -80,6 +80,26 @@ public final class PracticeIntegrationTest {
             check(!new PracticeRepository(db).get(acceptedId).isEmpty(),"practice data survives repository restart");
             Map<String,Object> queued=store.create(who,"MATH002","recover fixture",true,"recover",2);String queuedId=text(queued,"id","");store.running(queuedId);
             check(new PracticeRepository(db).recover().contains(queuedId),"interrupted practice job is recovered for shared queue");
+            Map<String,Object> custom=mapOf("id","CUSTOM_SUM","title","Tổng hai số tự tạo","topic","Số học","difficulty","Dễ","mode","BUILD_FROM_SCRATCH","statement","In tổng hai số.","inputFormat","Hai số nguyên.","outputFormat","Tổng.","tests",List.of(mapOf("input","1 2","expectedOutput","3","weight",1,"hidden",false),mapOf("input","50 49","expectedOutput","SECRET_99","weight",2,"hidden",true)));
+            check(request(base,null,"CATALOG_CREATE",custom).status()==401,"catalog creation needs login");
+            check(request(base,student,"CATALOG_CREATE",custom).status()==400,"student cannot create catalog exercise");
+            data(request(base,teacher,"CATALOG_CREATE",custom));
+            check(core.rooms.isEmpty(),"teacher creates exercise without joining a room");
+            check(request(base,teacher,"CATALOG_CREATE",custom).body().toString().contains("DUPLICATE_EXERCISE"),"duplicate code rejected without overwrite");
+            Map<String,Object> customView=obj(data(request(base,student,"PRACTICE_GET",mapOf("exerciseId","CUSTOM_SUM"))).get("exercise"));
+            check(rows(customView.get("publicTests")).size()==1&&!customView.toString().contains("SECRET_99"),"created exercise hides hidden test output");
+            var persisted=new studyfix.assignment.persistence.AssignmentRepository(db).getExercise("CUSTOM_SUM");
+            check(persisted.tests().size()==2&&persisted.tests().get(1).hidden(),"custom exercise and tests persist together");
+            check(rows(data(request(base,student,"PRACTICE_LIST",mapOf("query","CUSTOM_SUM"))).get("exercises")).stream().anyMatch(row->"CUSTOM_SUM".equals(row.get("id"))),"created exercise appears in student catalog search");
+            Map<String,Object> customSubmission=obj(data(request(base,student,"PRACTICE_SUBMIT",mapOf("exerciseId","CUSTOM_SUM","sourceCode","public class Main {}","idempotencyKey","custom-first-submit"))).get("submission"));
+            check(number(customSubmission,"totalTests",0)==2&&number(customSubmission,"version",0)==1,"new exercise reuses official submission queue and test suite");
+            Map<String,Object> invalid=new LinkedHashMap<>(custom);invalid.put("id","INVALID_ONLY_HIDDEN");invalid.put("tests",List.of(mapOf("input","","expectedOutput","","weight",1,"hidden",true)));
+            check(request(base,teacher,"CATALOG_CREATE",invalid).status()==400,"all-hidden test suite rejected");
+            invalid.put("id","INVALID_WEIGHT");invalid.put("tests",List.of(mapOf("input","","expectedOutput","","weight",0,"hidden",false)));
+            check(request(base,teacher,"CATALOG_CREATE",invalid).status()==400,"invalid weight rejected");
+            invalid.put("id","INVALID_DEBUG");invalid.put("tests",custom.get("tests"));invalid.put("mode","DEBUG_COLLAB");
+            check(request(base,teacher,"CATALOG_CREATE",invalid).status()==400,"debug exercise requires starter code");
+            check(new studyfix.assignment.persistence.AssignmentRepository(db).getExercise("INVALID_DEBUG")==null,"failed creation leaves no exercise behind");
         }
         System.out.println("PracticeIntegrationTest: "+ClassroomIntegrationTest.checks+" checks PASS (HTTP/SQLite/worker; AC fixtures are persistence tests).");
     }

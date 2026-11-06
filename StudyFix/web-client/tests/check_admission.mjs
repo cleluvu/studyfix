@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+const storage=new Map(),notices=[];
+globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+globalThis.setTimeout=()=>1;
+const root={innerHTML:""},toasts={appendChild:node=>notices.push(node)};
+globalThis.document={activeElement:null,querySelector:s=>s==="#app"?root:s==="#toast-region"?toasts:null,querySelectorAll:()=>[],getElementById:()=>null,addEventListener(){},createElement:()=>({innerHTML:"",remove(){}})};
+const {state}=await import("../static/core/state.js");
+const {renderRoomListCompact}=await import("../static/ui/render.js");
+const {joinRoom,handleAdmissionUpdate}=await import("../static/features/room/room.js");
+state.identity={userId:"s1",role:"STUDENT"};state.token="token";state.booting=true;
+state.rooms=[{roomId:"c1",roomCode:"Java",memberCount:0,version:0,admissionStatus:"NONE"}];
+assert.match(renderRoomListCompact(),/Xin vào lớp/);
+let status="PENDING",requests=0;
+globalThis.fetch=async(path,options={})=>{
+  requests++;
+  if(path==="/api/rooms/current/command")return {ok:true,status:202,json:async()=>({ok:true,admission:{classId:"c1",roomCode:"Java",status:"PENDING"}})};
+  assert.ok(path.startsWith("/api/rooms?"));
+  return {ok:true,status:200,json:async()=>({rooms:[{...state.rooms[0],admissionStatus:status}],admissions:[{classId:"c1",status}],total:1})};
+};
+await joinRoom("Java");assert.equal(state.pendingAdmission.classId,"c1");assert.equal(state.room,null);
+assert.match(renderRoomListCompact(),/Đang chờ duyệt/);assert.match(renderRoomListCompact(),/disabled aria-busy="true"/);
+status="REJECTED";await handleAdmissionUpdate([{classId:"c1",status}]);
+assert.equal(state.pendingAdmission,null);assert.match(renderRoomListCompact(),/Xin vào lại/);
+assert.match(notices.at(-1).innerHTML,/từ chối/);
+state.pendingAdmission={classId:"c1",roomCode:"Java",userId:"someone-else"};const before=requests;
+await handleAdmissionUpdate([{classId:"c1",status:"APPROVED"}]);assert.equal(requests,before,"another account's waiting request cannot auto-enter");
+state.pendingAdmission=null;state.rooms[0].admissionStatus="APPROVED";assert.match(renderRoomListCompact(),/>Vào<\/button>/);
+console.log("Class admission frontend: request, pending button, rejection/retry, enrolled entry and account isolation PASS (mock HTTP/DOM).");

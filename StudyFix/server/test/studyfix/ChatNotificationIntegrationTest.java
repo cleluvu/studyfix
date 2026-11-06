@@ -6,7 +6,7 @@ import java.util.*;
 import static studyfix.ClassroomIntegrationTest.*;
 import static studyfix.assignment.protocol.AssignmentJson.*;
 
-/** Real authenticated HTTP/SQLite counts, independent of the 80-message UI window. */
+/** Kiểm tra số tin chưa đọc qua HTTP đã đăng nhập và SQLite thật, không phụ thuộc giới hạn hiển thị 80 tin. */
 public final class ChatNotificationIntegrationTest {
     public static void main(String[] args)throws Exception {
         System.setProperty("studyfix.screen.port","0");System.setProperty("studyfix.web.port","0");

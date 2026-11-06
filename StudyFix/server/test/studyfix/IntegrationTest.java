@@ -9,7 +9,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.BooleanSupplier;
 
-/** Real TCP/SQLite tests on loopback, no external test framework. */
+/** Test bằng TCP và SQLite thật trên máy, không cần thư viện kiểm thử ngoài. */
 public final class IntegrationTest {
     private static int checks;
     private static void check(boolean ok, String message) {
@@ -117,7 +117,7 @@ public final class IntegrationTest {
             student.send("/history 9999"); student.await("Không tìm thấy phiên bản");
             teacher.send("/update 1 " + token + " " + "a".repeat(32001)); teacher.await("Code phải có nội dung");
             check(room(server, firstRoom).version() == 1, "Chặn version lịch sử sai và code quá lớn");
-            // Fail the second SQL statement after current code has been updated inside the transaction.
+            // Cố ý làm câu SQL thứ hai lỗi sau khi code đã cập nhật trong giao dịch để kiểm tra hoàn tác.
             try (Connection db = DriverManager.getConnection("jdbc:sqlite:" + database.toAbsolutePath()); Statement s = db.createStatement()) {
                 s.execute("CREATE TRIGGER fail_revision BEFORE INSERT ON revisions BEGIN SELECT RAISE(ABORT,'injected disk failure'); END");
                 teacher.send("/update 1 " + token + " must rollback"); teacher.await("[SAVE_FAILED]");
@@ -139,14 +139,14 @@ public final class IntegrationTest {
             long newToken = room(server, firstRoom).token();
             waiting.send("/release " + newToken); waiting.await("Từ chối trả quyền");
             editor.send("/select 1 " + token + " 1-2"); editor.await("Từ chối");
-            // Two same-version updates race across sockets: exactly one can succeed.
+            // Gửi hai lần cập nhật cùng phiên bản qua hai socket; chỉ một lần được thành công.
             editor.send("/select 1 " + newToken + " 1-2"); editor.await("[Bản nháp]");
             editor.send("/setrange " + newToken + " winner"); editor.await("[Bản nháp]");
             editor.send("/finish " + newToken);
             waiting.send("/finish " + newToken);
             editor.await("--- CODE CHUNG ĐÃ CẬP NHẬT ---"); waiting.await("Từ chối");
             check(room(server, firstRoom).version() == 2, "Cập nhật đồng thời chỉ chấp nhận người giữ quyền");
-            // Race a valid release against the queued session leaving the room.
+            // Cho thao tác nhường quyền hợp lệ chạy cùng lúc với người đang chờ rời phòng.
             editor.send("/release " + room(server, firstRoom).token());
             waiting.send("/leave"); waiting.await("Đã rời phòng:");
             eventually(() -> room(server, firstRoom).editor() == null && room(server, firstRoom).queue().isEmpty(),
@@ -159,7 +159,7 @@ public final class IntegrationTest {
             editor.close();
             eventually(() -> waiting.session.equals(room(server, firstRoom).editor()), 3000, "Mất kết nối thu hồi/chuyển quyền");
             eventually(() -> Collections.frequency(departures, editor.session + ":" + firstRoom) == 1, 3000, "Callback rời phòng đúng một lần");
-            // A non-reading socket is expelled on bounded queue overflow, without blocking a room lock.
+            // Ngắt socket không đọc dữ liệu khi hàng đợi đầy, tránh làm chặn khóa phòng.
             try (Socket slow = new Socket()) {
                 slow.setReceiveBufferSize(1024); slow.connect(new InetSocketAddress("127.0.0.1", server.port()));
                 DataOutputStream out = new DataOutputStream(slow.getOutputStream());

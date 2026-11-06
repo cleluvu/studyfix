@@ -12,9 +12,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Docker-required grading sandbox. Hidden inputs/expected outputs are never written
- * into the directory mounted for submitted code. Each test input is streamed to stdin
- * of a fresh no-network container; the expected output remains on the server only.
+ * Chấm bài trong môi trường Docker riêng. Không ghi đầu vào hay đáp án của test ẩn
+ * vào thư mục mà bài nộp truy cập được. Đầu vào từng test được gửi qua stdin
+ * cho container mới không có mạng; đáp án chuẩn chỉ nằm ở server.
  */
 public final class DockerJavaSandbox implements GradingSandbox {
     private static final int MAX_SOURCE_BYTES = 32 * 1024;
@@ -49,7 +49,7 @@ public final class DockerJavaSandbox implements GradingSandbox {
 
         Path work = Files.createTempDirectory("studyfix-grade-");
         try {
-            // This is the only data made available to the compiler/code container.
+            // Chỉ đưa các dữ liệu này vào container biên dịch và chạy bài nộp.
             Files.writeString(work.resolve("Main.java"), source, StandardCharsets.UTF_8);
             long deadlineNanos = started + TimeUnit.SECONDS.toNanos(totalTimeoutSeconds);
             String compileName = containerName("compile");

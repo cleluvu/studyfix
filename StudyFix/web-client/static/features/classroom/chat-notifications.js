@@ -8,13 +8,13 @@ function scope() {return state.identity?.userId && state.room?.roomId ? `${state
 function record(key) {
   if (!records.has(key)) {
     let saved=null;
-    try {saved=JSON.parse(globalThis.localStorage?.getItem(`studyfix.chat.read.${key}`)||"null");} catch (_) { /* Storage can be disabled. Keep a memory marker in that case. */ }
+    try {saved=JSON.parse(globalThis.localStorage?.getItem(`studyfix.chat.read.${key}`)||"null");} catch (_) { /* Nếu trình duyệt chặn lưu trữ thì tạm giữ mốc đã đọc trong bộ nhớ. */ }
     records.set(key,{readId:Number.isSafeInteger(saved)&&saved>=0?saved:null, latestId:0, observed:0, initialized:false, unread:0, messages:[]});
   }
   return records.get(key);
 }
 function persist(key,r) {
-  try {globalThis.localStorage?.setItem(`studyfix.chat.read.${key}`,JSON.stringify(r.readId));} catch (_) { /* Unread state still works in memory. */ }
+  try {globalThis.localStorage?.setItem(`studyfix.chat.read.${key}`,JSON.stringify(r.readId));} catch (_) { /* Vẫn theo dõi tin chưa đọc trong bộ nhớ dù không lưu được trên máy. */ }
 }
 export function unreadChatCount() {const key=scope();return key?record(key).unread:0;}
 export function updateChatBadges() {
@@ -42,18 +42,18 @@ export async function loadChat() {
   try {response=await api(`/api/rooms/current/chat?after=${after}`);}
   catch(e) {
     if(e.status!==404)throw e;
-    // A running older JAR can keep serving updated static files before its restart.
-    // Preserve chat until the new author-ID/count endpoint becomes available.
+    // Server đang chạy JAR cũ vẫn có thể trả về các file giao diện vừa được cập nhật.
+    // Giữ nội dung chat trong lúc chờ server hỗ trợ API mới về người gửi và số tin chưa đọc.
     const old=await api("/api/classroom"),messages=old.classroom?.chat||[];
     response={messages,latestId:Number(messages.at(-1)?.id||0),unreadCount:messages.filter(m=>Number(m.id)>after&&!isOwn(m)).length};
   }
   if(key!==scope()||token!==state.token)return false;
   const latest=Number(response.latestId||0);
-  if(latest<r.observed)return false; // A slower response must not undo newer chat state.
+  if(latest<r.observed)return false; // Bỏ qua phản hồi đến chậm để không ghi đè trạng thái chat mới hơn.
   const messages=(response.messages||[]).filter(m=>!m.system&&Number(m.id)>0);
   const oldUnread=r.unread,oldMessages=JSON.stringify(r.messages);
   const newlyReceived=r.initialized?messages.filter(m=>Number(m.id)>r.observed&&!isOwn(m)):[];
-  if(r.readId===null) {r.readId=latest;persist(key,r);r.unread=0;} // Establish a baseline on first joining a room.
+  if(r.readId===null) {r.readId=latest;persist(key,r);r.unread=0;} // Lấy mốc đã đọc ban đầu khi vừa vào phòng lần đầu.
   else if(r.readId===after)r.unread=Math.max(0,Number(response.unreadCount)||0);
   else r.unread=messages.filter(m=>Number(m.id)>r.readId&&!isOwn(m)).length;
   r.messages=messages;r.latestId=latest;r.observed=latest;r.initialized=true;
@@ -69,7 +69,7 @@ function isOwn(message) {
   return message.userId ? message.userId===state.identity?.userId : message.name===state.identity?.displayName;
 }
 export function resetChatNotifications() {
-  // Keep per-account read markers for reload/login; clear currently displayed counts.
+  // Giữ mốc đã đọc của từng tài khoản để dùng khi tải lại hoặc đăng nhập; chỉ xóa số đếm đang hiển thị.
   for(const r of records.values())r.unread=0;
   document.title=baseTitle;
 }

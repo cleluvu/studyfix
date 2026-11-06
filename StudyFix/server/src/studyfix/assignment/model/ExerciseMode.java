@@ -1,6 +1,6 @@
 package studyfix.assignment.model;
 
-/** Explicit learning activity type; never infer it from the exercise title or source template. */
+/** Khai báo rõ loại hoạt động học tập, không đoán từ tên bài hay code mẫu. */
 public enum ExerciseMode {
     DEBUG_COLLAB,
     BUILD_FROM_SCRATCH;

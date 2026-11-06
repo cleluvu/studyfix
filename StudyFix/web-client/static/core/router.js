@@ -1,12 +1,12 @@
-// Auto-split from the original monolithic static/app.js. See docs/FRONTEND_ARCHITECTURE.md.
-// Tiny page-renderer registry.
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
+// Lưu danh sách hàm hiển thị của từng trang.
 //
-// ui/render.js needs to call the current page's render function (renderRoom,
-// renderExercises, renderContests, renderOverview, ...), but those feature
-// modules all need to call render() (defined in ui/render.js) after they
-// mutate state. A direct import in either direction would create a cycle, so
-// instead each feature module calls registerPage() once (see app.js) and
-// ui/render.js looks the function up here at render time.
+// ui/render.js cần gọi hàm hiển thị của trang hiện tại, như renderRoom,
+// renderExercises, renderContests, renderOverview,... Các module chức năng này
+// cũng cần gọi render() trong ui/render.js sau khi
+// đổi trạng thái. Import trực tiếp sẽ tạo vòng phụ thuộc, nên
+// mỗi module đăng ký một lần bằng registerPage() trong app.js.
+// Khi hiển thị, ui/render.js tra hàm đã đăng ký tại đây.
 
 const pages = {};
 

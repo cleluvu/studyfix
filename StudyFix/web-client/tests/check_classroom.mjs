@@ -1,4 +1,4 @@
-// Behavioral module tests with a synthetic DOM and HTTP responses, not a real-browser E2E test.
+// Kiểm tra hoạt động module bằng DOM và phản hồi HTTP giả lập, chưa phải test trên trình duyệt thật.
 import assert from "node:assert/strict";
 
 const storage = new Map(), elements = new Map(), timers = new Map();
@@ -70,7 +70,7 @@ check(sent.code === "// snapshot being saved", "request has fixed snapshot");
 check(state.classroomDrafts[key].code === "// typed while save was in flight" && state.classroomDrafts[key].dirty, "typing during save is retained");
 check(state.classroomDrafts[key].baseVersion === 1, "new draft continues from acknowledged version");
 
-// A poll started before a mutation must not restore an older server view afterward.
+// Yêu cầu lấy dữ liệu gửi trước lúc thay đổi không được ghi đè giao diện bằng trạng thái cũ khi phản hồi về sau.
 let resolvePoll;
 globalThis.fetch = async (path, options = {}) => {
   if (path === "/api/classroom" && !options.method) return new Promise(resolve => { resolvePoll = resolve; });
@@ -117,6 +117,13 @@ check(!renderClassroom("CHAT","MEMBERS").includes('class="meeting-drawer"'),"sam
 setup();html=renderClassroom("","");
 check(html.includes('data-meeting-view="student"')&&html.includes("Challenge Terminal"),"student has dedicated editor and real judge terminal");
 check(html.includes('data-action="call-mic"')&&html.includes('data-action="call-camera"'),"meeting exposes real device controls");
+for(const owner of [false,true]){
+  setup(owner);html=renderClassroom("CHAT","MEMBERS");
+  check(!html.includes('data-action="call-join"')&&!html.includes('data-panel="history"'),"meeting hides listen-join and history controls for both roles");
+  state.meetingPanel="history";
+  check(!renderClassroom("CHAT","MEMBERS").includes('class="meeting-drawer"'),"old history panel state cannot reopen the removed drawer");
+}
+state.meetingPanel="";setup();
 state.roomTab="screen";state.remoteStream={getAudioTracks:()=>[{readyState:"live"}]};state.screenPlaybackBlocked=true;
 html=renderClassroom("","");
 check(html.includes("Có luồng âm thanh chia sẻ")&&html.includes('data-action="play-screen-audio"'),"screen audio status and blocked-playback control are visible");
@@ -129,4 +136,26 @@ check(state.room === beforeNetworkError, "temporary network failure preserves ro
 globalThis.fetch = async () => response({ error: "NO_ROOM", message: "Bạn chưa vào phòng" }, 409);
 await loadCurrentRoom(false);
 check(state.room === null && state.classroom === null, "server-confirmed departure clears stale room");
+setup(true);
+const catalog=[{id:"DBG_STR001",title:"Sửa lỗi: Đảo ngược chuỗi"},{id:"DBG_ARR001",title:"Sửa lỗi: Tính tổng mảng"},{id:"DBG_XSS",title:"<script>unsafe</script>"}];
+globalThis.fetch=async(path,options)=>{check(JSON.parse(options.body).mode==="DEBUG_COLLAB","picker keeps debug-only catalog request");return response({status:"OK",data:{exercises:catalog}});};
+await classroomClick("classroom-pick-exercise",{});
+check(elements.get("active-modal").innerHTML.includes('id="classroom-exercise-query"'),"debug picker includes search control");
+check(elements.get("active-modal").innerHTML.includes("&lt;script&gt;unsafe"),"picker escapes exercise titles");
+const search={id:"classroom-exercise-query",value:"",focus(){}},results=element(),count={textContent:""};
+elements.set(search.id,search);elements.set("classroom-exercise-results",results);elements.set("classroom-exercise-count",count);
+classroomInput({...search,value:"DAO NGUOC chuoi"});
+check(results.innerHTML.includes('data-id="DBG_STR001"')&&!results.innerHTML.includes("DBG_ARR001"),"search matches Vietnamese title without accents and case");
+check(count.textContent==="Hiển thị 1/3 bài","search reports matching count");
+classroomInput({...search,value:"dbg_arr001"});check(results.innerHTML.includes("Tính tổng mảng")&&!results.innerHTML.includes("DBG_STR001"),"search matches exercise code");
+classroomInput({...search,value:"str001 dao"});check(results.innerHTML.includes("DBG_STR001"),"search combines code and title words");
+classroomInput({...search,value:"not-a-real-exercise"});check(results.innerHTML.includes("Không tìm thấy bài phù hợp"),"missing search has an empty result message");
+search.value="not-a-real-exercise";await classroomClick("classroom-exercise-clear",{});
+check(search.value===""&&count.textContent==="Hiển thị 3/3 bài","clear restores full exercise list");
+check(results.innerHTML.includes('data-id="DBG_STR001"')&&Object.keys(state.classroomDrafts).length===0,"filter preserves starter IDs without changing code drafts");
+let completePicker;
+globalThis.fetch=()=>new Promise(resolve=>completePicker=resolve);
+const beforePicker=elements.get("active-modal").innerHTML,latePicker=classroomClick("classroom-pick-exercise",{});
+state.room=null;completePicker(response({status:"OK",data:{exercises:[]}}));await latePicker;
+check(elements.get("active-modal").innerHTML===beforePicker,"late catalog response cannot open a picker after leaving room");
 console.log(`Classroom frontend: ${checks} behavioral checks PASS (synthetic DOM/HTTP; no browser E2E claim).`);

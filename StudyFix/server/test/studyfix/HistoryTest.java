@@ -10,7 +10,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import javax.swing.*;
 
-/** History, migration, multipart TCP and actual Swing component regression tests. */
+/** Kiểm tra lại lịch sử, nâng cấp dữ liệu, TCP nhiều phần và thành phần Swing thật. */
 public final class HistoryTest {
     private static int checks;
     private static void check(boolean ok, String message) {
@@ -48,7 +48,7 @@ public final class HistoryTest {
         }
         @Override public void close() throws Exception { socket.close(); }
     }
-    // Reconstruct the exact new text from numbered +/- rows, including endings.
+    // Ghép lại chính xác văn bản mới từ các dòng +/- có số dòng, kể cả ký tự xuống dòng.
     private static void diffCheck(String old, String next) {
         String diff = CodeDiff.between(old, next);
         List<String> before = CodeDiff.lines(old), after = new ArrayList<>();

@@ -10,7 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import java.util.function.BooleanSupplier;
 
-/** Isolated draft contract tests: direct EditSession + real TCP/SQLite + actual Client JVM. */
+/** Kiểm tra bản nháp bằng EditSession trực tiếp, TCP/SQLite thật và tiến trình JVM chạy Client thật. */
 public final class EditSessionTest {
     private static final String BASE = "one\r\ntwo\nthree\nfour\nfive";
     private static final ScheduledExecutorService HEARTBEATS = Executors.newScheduledThreadPool(2);
@@ -32,7 +32,7 @@ public final class EditSessionTest {
         expect(condition.getAsBoolean(), "State not reached within " + timeoutMs + "ms");
     }
 
-    /** One reader owns the socket; command barriers distinguish old broadcasts from replies. */
+    /** Chỉ một luồng đọc socket; dùng mốc giữa các lệnh để phân biệt thông báo cũ với phản hồi mới. */
     private static final class Peer implements AutoCloseable {
         final Socket socket = new Socket();
         final DataOutputStream out;
@@ -73,7 +73,7 @@ public final class EditSessionTest {
         synchronized void send(String message) throws IOException {
             String verb = message.split("[ \\t]", 2)[0];
             if (verb.equals("/ping")) pings++;
-            // Record verbs only: never log credentials or complete login payloads.
+            // Chỉ ghi tên lệnh vào log, không ghi thông tin xác thực hay toàn bộ yêu cầu đăng nhập.
             COMMANDS.add(verb); Protocol.send(out, message);
         }
         void barrier() throws Exception {
@@ -130,7 +130,7 @@ public final class EditSessionTest {
             diskMatches(now);
         }
         void diskMatches(Room.Snapshot expected) throws Exception {
-            // Independent JDBC connection: assertions do not merely re-read the same RAM object.
+            // Dùng kết nối JDBC riêng để kiểm tra dữ liệu thật trong database, không chỉ đọc lại đối tượng trong RAM.
             try (Connection dbConnection = DriverManager.getConnection("jdbc:sqlite:" + db);
                  PreparedStatement query = dbConnection.prepareStatement("SELECT code,version,(SELECT count(*) FROM revisions WHERE room_id=?) FROM rooms WHERE room_id=?")) {
                 query.setString(1, roomId); query.setString(2, roomId);

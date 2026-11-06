@@ -1,6 +1,0 @@
-/build/
-/dist/
-/data/
-/nbproject/private/
-*.db-wal
-*.db-shm

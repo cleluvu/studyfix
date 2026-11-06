@@ -1,1 +1,0 @@
-﻿BASELINE_OLD_CLIENT_EXIT=1 (expected 1: regression catches the old implementation)

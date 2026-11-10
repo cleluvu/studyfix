@@ -1,0 +1,16 @@
+{
+  "passed": [
+    "five live metric cards",
+    "desktop, laptop, tablet and phone without page overflow",
+    "AC drilldown matches aggregate",
+    "submission pagination",
+    "settings save through SQLite API",
+    "notification read marker",
+    "create class quick action",
+    "open classroom quick action",
+    "assign exercises opens classroom catalog",
+    "create exam wizard quick action",
+    "failed refresh preserves data and retry recovers",
+    "no uncaught browser errors"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "studyfix-management.db": {
+    "integrity": "ok",
+    "foreignKeyViolations": 0,
+    "rows": {
+      "users": 8,
+      "classes": 25,
+      "class_members": 5,
+      "sessions": 54,
+      "attendance": 37,
+      "class_admissions": 18
+    }
+  },
+  "studyfix.db": {
+    "integrity": "ok",
+    "foreignKeyViolations": 0
+  },
+  "studyfix-learning.db": {
+    "integrity": "ok",
+    "foreignKeyViolations": 0,
+    "activeBank": 100,
+    "weeks": 12,
+    "testCases": 316,
+    "structures": {
+      "CLASS": 20,
+      "METHOD": 30,
+      "PROGRAM": 50
+    }
+  }
+}

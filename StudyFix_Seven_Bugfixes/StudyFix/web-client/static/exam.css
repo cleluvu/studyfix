@@ -1,0 +1,13 @@
+.exam-student-status{background:#fff8e9;border:1px solid #f0d9a1;border-radius:10px;padding:12px 15px;margin:0 0 12px;color:#75551e;font-size:12px;line-height:1.6}
+.exam-student-status strong,.exam-student-status span,.exam-student-status small{display:block}
+.exam-monitor{margin-bottom:18px}.exam-monitor .card-head{gap:14px;flex-wrap:wrap}.exam-monitor .card-head p{font-size:11px;color:#71849d;margin:5px 0 0}
+.exam-settings{display:flex;gap:12px;align-items:end;flex-wrap:wrap}.exam-settings label{display:grid;gap:6px;font-size:12px;flex:1;min-width:140px}.exam-settings>.field{flex:1;min-width:180px}.exam-settings .select{width:auto;min-width:180px}.exam-settings+.exam-settings{margin-top:12px}
+@media(max-width:600px){.exam-settings{align-items:stretch}.exam-settings label,.exam-settings>.field,.exam-settings .select{width:100%;min-width:0}.exam-settings .btn{flex:1}}
+/* Match the existing dark classroom workspace. */
+.meeting-shell .exam-monitor{background:#222a35;border-color:#3b4655;color:#e3eaf4}
+.meeting-shell .exam-monitor .card-head{border-color:#3b4655}
+.meeting-shell .exam-monitor .card-head p,.meeting-shell .exam-monitor .task-sub{color:#a6b6cc}
+.meeting-shell .exam-monitor .data-table th{background:#293545;color:#b9c9df}
+.meeting-shell .exam-monitor .data-table td{background:#222a35;color:#e3eaf4;border-color:#3b4655}
+.meeting-shell .exam-monitor .select{background:#1b222c;color:#e3eaf4;border-color:#46546a}
+.meeting-shell .exam-student-status{background:#413822;border-color:#806835;color:#ffebbb}

@@ -1,0 +1,53 @@
+{
+  "backend": "53 real HTTP/SQLite assertions passed",
+  "docker": "Actual Docker TOKEN checker, 37-point maximum and all-or-nothing scoring passed",
+  "browser": {
+    "checks": [
+      "01-list no page overflow",
+      "live exam search updates without Enter",
+      "02-information no page overflow",
+      "question source filters while typing",
+      "03-sources no page overflow",
+      "points distributed to total",
+      "04-structure no page overflow",
+      "05-grading no page overflow",
+      "06-review no page overflow",
+      "08-preview no page overflow",
+      "preview switches questions",
+      "07-detail no page overflow",
+      "browser saves and approves real definition",
+      "detail restored after hard reload",
+      "schedule modal renders all fields",
+      "exam version creates actual classroom contest",
+      "exports real ZIP package",
+      "09-import-export no page overflow",
+      "ZIP round trip creates draft version without overwrite",
+      "mobile no page overflow",
+      "student sidebar excludes bank management",
+      "no browser runtime errors"
+    ],
+    "errors": []
+  },
+  "frontend": "21/21 regression scripts passed",
+  "regressions": [
+    "ClassroomIntegrationTest",
+    "QuestionBankIntegrationTest",
+    "QuestionWeekIntegrationTest",
+    "PracticeIntegrationTest",
+    "ExamModeIntegrationTest"
+  ],
+  "production": {
+    "status": "Source complete; old running Server Manager holds dist/studyfix.jar. Restart required for new backend.",
+    "backup": "StudyFix\\server\\backups\\before-exam-bank-20261109-070234",
+    "existing_learning_counts_unchanged": true,
+    "counts": {
+      "p3_exercises": 148,
+      "p3_question_bank": 148,
+      "p3_question_weeks": 12,
+      "p3_question_week_items": 120,
+      "p3_contests": 8,
+      "p3_practice_submissions": 6
+    }
+  },
+  "migration": "db/sqlite-exam-bank.sql (automatically applied by ExamBankRepository on next startup)"
+}

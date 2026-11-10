@@ -1,0 +1,15 @@
+{
+  "passed": [
+    "class cards and pagination",
+    "search, class details, members, status filter and active deletion guard",
+    "create/edit popups, closed room guard and delete confirmation",
+    "same room entry, template shell, single audio bank and original END action",
+    "Master editor save and version handling",
+    "members and chat sent to server",
+    "mic and camera using Chrome synthetic capture",
+    "history and code detail popup",
+    "screen-share view and Master navigation",
+    "both pages at four widths without page overflow",
+    "teacher exit preserves room membership and stops media"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "passed": [
+    "screenshot layout, real counters, eight columns and no explanatory panel",
+    "pagination",
+    "accent-insensitive search, scoped detail and shared-account protection",
+    "create popup validates and creates real account with initial class",
+    "edit popup saves account, email, status and class transfer",
+    "add class and explicit transfer preserve correct memberships",
+    "disable confirmation and history retained",
+    "class and account status filters",
+    "CSV import creates accounts, preview hides passwords",
+    "Excel import creates accounts, preview hides passwords",
+    "filtered CSV and genuine XLSX download without secrets",
+    "four screen widths without page overflow",
+    "no uncaught browser errors"
+  ]
+}

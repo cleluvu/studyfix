@@ -1,0 +1,38 @@
+{
+  "verifiedAt": "2026-11-08T22:16:32.319051+00:00",
+  "healthDatabase": "sqlite",
+  "databases": {
+    "studyfix.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0
+    },
+    "studyfix-learning.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0,
+      "activeBank": 100,
+      "weeks": 12,
+      "builderPublications": 0,
+      "workflowTables": 4
+    },
+    "studyfix-management.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0,
+      "accountHashesPreserved": true
+    }
+  },
+  "tests": {
+    "builder-complete-release.log": {
+      "buildSuccessful": true,
+      "chromePassed": true
+    },
+    "builder-complete-regression.log": {
+      "buildSuccessful": true,
+      "chromePassed": true
+    },
+    "frontend": {
+      "total": 20,
+      "failed": 0
+    }
+  },
+  "screenshots": "docs/previews/PROBLEM_BUILDER_4_7"
+}

@@ -1,0 +1,19 @@
+{
+  "backup": "backups\\before-builder-4-7-20261109-051341",
+  "databases": {
+    "studyfix.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0
+    },
+    "studyfix-learning.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0,
+      "activeBank": 100,
+      "weeks": 12
+    },
+    "studyfix-management.db": {
+      "integrity": "ok",
+      "foreignKeyViolations": 0
+    }
+  }
+}

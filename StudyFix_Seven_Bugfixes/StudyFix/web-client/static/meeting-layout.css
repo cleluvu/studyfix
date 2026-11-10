@@ -1,0 +1,53 @@
+/* Focused meeting layout: a stage, one optional panel and persistent controls. */
+.room-shell .meeting-shell{padding:14px;gap:12px;background:#f4f3f8}
+.room-shell .meeting-shell [hidden],.modal [data-meeting-report-row][hidden]{display:none!important}
+.room-shell .meeting-header{min-height:52px;gap:12px;padding:0 4px}
+.room-shell .meeting-title-icon{width:42px;height:42px;border-radius:12px}
+.room-shell .meeting-title-icon svg{width:24px;height:24px}
+.room-shell .meeting-session-title h2{font-size:19px}
+.room-shell .meeting-session-title{gap:8px}
+.room-shell .meeting-body{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:stretch;overflow:hidden;position:relative}
+.room-shell .meeting-shell:not([data-open-panel=""]) .meeting-body{grid-template-columns:minmax(0,1fr) 360px}
+.room-shell .meeting-stage{min-height:0;display:flex;flex-direction:column;border-radius:14px;background:#fff;overflow:hidden}
+.room-shell .meeting-stage-toolbar{flex-shrink:0;min-height:50px;padding:8px 12px}
+.room-shell .meeting-content{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column}
+.room-shell .meeting-code-workspace{flex:1;min-height:360px}
+.room-shell .meeting-editor{flex:1}
+.room-shell .meeting-video-strip{flex-shrink:0;max-height:150px}
+.room-shell .meeting-drawer{display:flex;flex-direction:column;position:relative;inset:auto;width:auto;min-width:0;min-height:0;overflow:hidden;border:1px solid #e4deee;border-radius:14px;background:#fff;box-shadow:0 4px 18px #32205008}
+.room-shell .meeting-drawer-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:16px;border-bottom:1px solid #ede9f3;background:#fff;gap:12px}
+.room-shell .meeting-drawer-head h3{display:flex;align-items:center;gap:9px;font-size:15px;color:#282036;margin:0}
+.room-shell .meeting-drawer-head h3 svg{width:20px;height:20px;color:#7541da}
+.room-shell .meeting-drawer-head>button{width:30px;height:30px;border:0;border-radius:8px;background:#f4f1f8;color:#62566f;font-size:23px;cursor:pointer}
+.room-shell .meeting-panel-content{display:flex;flex-direction:column;gap:14px;flex:1;min-height:0;padding:16px;overflow:auto}
+.meeting-panel-search{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.meeting-panel-search>span{font-size:12px;color:#776c84}
+.meeting-panel-search input{box-sizing:border-box;width:100%;min-width:0;border:1px solid #ded7e8;border-radius:9px;background:#faf9fc;padding:11px 12px;font:inherit;color:#322a40}
+.meeting-panel-search input:focus{outline:2px solid #d9c6fb;border-color:#9868e7}
+.room-shell .meeting-panel-content .member-list{overflow:visible;max-height:none}
+.room-shell .meeting-panel-content .member-item{padding:12px 0;border-bottom:1px solid #f0edf5}
+.room-shell .meeting-panel-content .chat-list{flex:1;min-height:100px;max-height:none;overflow:auto;padding:0}
+.room-shell .meeting-panel-content .chat-compose{flex-shrink:0;margin-top:auto;padding:10px 0 0;border-top:1px solid #eee9f3;background:#fff}
+.room-shell .meeting-panel-actions{display:flex;flex-wrap:wrap;gap:8px;flex-shrink:0}
+.room-shell .meeting-panel-actions .btn{font-size:12px;padding:9px 11px}
+.room-shell .meeting-panel-item{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:14px 0;border-bottom:1px solid #eee9f3;overflow-wrap:anywhere}
+.room-shell .meeting-panel-item strong{font-size:13px;color:#342642}
+.room-shell .meeting-panel-item small,.room-shell .meeting-panel-caption{color:#80718d;font-size:12px;margin:0}
+.room-shell .meeting-classmates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.room-shell .meeting-panel-content .meeting-person{min-width:0}
+.room-shell .meeting-panel-content .meeting-person-image{height:105px}
+.room-shell .meeting-history-content .history-entry{padding:12px 0;gap:8px;overflow-wrap:anywhere}
+.room-shell .meeting-history-content h4{margin:18px 0 10px;font-size:13px;color:#62516f}
+.room-shell .meeting-footer{display:grid;grid-template-columns:auto minmax(0,1fr) auto;min-height:76px;gap:12px;padding:10px 14px;border-radius:14px;background:#fff}
+.room-shell .meeting-device-tools,.room-shell .meeting-center-tools,.room-shell .meeting-leave-tools{display:flex;align-items:center;gap:6px;min-width:0;width:auto;order:0;padding:0;border:0}
+.room-shell .meeting-center-tools{justify-content:center;overflow-x:auto;scrollbar-width:thin}
+.room-shell .meeting-tool{flex-shrink:0;min-width:56px;min-height:52px;display:flex;flex-direction:column;justify-content:center;gap:5px;padding:7px 9px;border:0;border-radius:10px;color:#74677f;background:transparent;font-size:10px}
+.room-shell .meeting-tool svg{width:20px;height:20px}
+.room-shell .meeting-tool:hover{background:#f3effa;color:#6d35c5}
+.room-shell .meeting-tool.is-on{background:#eee5fc;color:#6d2ed0}
+.room-shell .meeting-tool span{white-space:nowrap}
+.room-shell .meeting-leave{background:#df3b52;color:white;border:0;border-radius:10px;padding:12px 18px;font-size:13px;white-space:nowrap}
+.room-shell .meeting-assignment-workspace{min-width:0}
+.room-shell .meeting-assignment-workspace .page-header{margin-bottom:16px}
+@media(max-width:1100px){.room-shell .meeting-shell:not([data-open-panel=""]) .meeting-body{grid-template-columns:minmax(0,1fr) 320px}.room-shell .meeting-session-title h2{font-size:17px}.room-shell .meeting-tool{min-width:48px;padding:6px}.room-shell .meeting-footer{gap:8px;padding:8px}}
+@media(max-width:800px){.room-shell .meeting-shell{padding:8px;gap:8px}.room-shell .meeting-shell:not([data-open-panel=""]) .meeting-body{grid-template-columns:minmax(0,1fr)}.room-shell .meeting-drawer{position:absolute;inset:0 0 0 auto;width:min(380px,100%);z-index:5;box-shadow:-10px 0 30px #21113522}.room-shell .meeting-header{min-height:44px;gap:8px}.room-shell .meeting-session-title{min-width:0;flex:1}.room-shell .meeting-session-title h2{font-size:15px}.room-shell .meeting-header .meeting-live{display:none}.room-shell .meeting-title-icon{width:34px;height:34px}.room-shell .meeting-footer{grid-template-columns:1fr auto;gap:8px;min-height:0}.room-shell .meeting-center-tools{grid-column:1/-1;grid-row:2;justify-content:flex-start;padding-top:8px;border-top:1px solid #eee9f3}.room-shell .meeting-leave-tools{grid-column:2;grid-row:1}.room-shell .meeting-device-tools{grid-column:1;grid-row:1}.room-shell .meeting-tool{min-height:44px}.room-shell .meeting-stage-toolbar{padding:7px}.room-shell .meeting-content{padding:10px}.room-shell .meeting-stage-tabs button{padding:7px}.room-shell .meeting-leave{padding:11px 13px}}

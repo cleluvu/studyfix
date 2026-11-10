@@ -1,0 +1,195 @@
+Project server: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server
+Java: C:\Program Files\Java\jdk-26.0.2.1\bin\java.exe
+Ant: C:\Users\giang\Downloads\apache-ant-1.10.18-bin\apache-ant-1.10.18\bin\ant.bat
+Dang build server + module Member 3...
+Buildfile: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build.xml
+
+-pre-init:
+
+-init-private:
+
+-init-user:
+
+-init-project:
+
+-init-macrodef-property:
+
+-init-modules-supported:
+
+-do-init:
+
+-post-init:
+
+-init-check:
+
+-init-ap-cmdline-properties:
+
+-init-macrodef-modulename:
+
+-init-source-module-properties:
+
+-init-macrodef-javac-with-module:
+
+-init-macrodef-javac-with-processors:
+
+-init-macrodef-javac-without-processors:
+
+-init-macrodef-javac:
+
+-init-macrodef-test-impl:
+
+-init-macrodef-junit-init:
+
+-init-test-properties:
+
+-init-macrodef-junit-prototype-with-module:
+
+-init-macrodef-junit-prototype-without-module:
+
+-init-macrodef-junit-single:
+
+-init-macrodef-junit-batch:
+
+-init-macrodef-junit:
+
+-init-macrodef-junit-impl:
+
+-init-macrodef-testng:
+
+-init-macrodef-testng-impl:
+
+-init-macrodef-test:
+
+-init-macrodef-junit-debug-impl:
+
+-init-macrodef-test-debug-junit:
+
+-init-macrodef-testng-debug:
+
+-init-macrodef-testng-debug-impl:
+
+-init-macrodef-test-debug-testng:
+
+-init-macrodef-test-debug:
+
+-init-debug-args:
+
+-init-macrodef-nbjpda:
+
+-init-macrodef-debug:
+
+-init-macrodef-java-with-module:
+
+-init-macrodef-java-with-unnamed-module:
+
+-init-macrodef-java-without-module:
+
+-init-macrodef-java:
+
+-init-presetdef-jar:
+
+-init-ap-cmdline-supported:
+
+-init-ap-cmdline:
+
+init:
+
+-deps-jar-init:
+
+deps-jar:
+    [mkdir] Created dir: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B
+
+-warn-already-built-jar:
+[propertyfile] Updating property file: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\built-jar.properties
+
+-check-automatic-build:
+
+-clean-after-automatic-build:
+
+-verify-automatic-build:
+
+-pre-pre-compile:
+    [mkdir] Created dir: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\classes
+
+-pre-compile:
+
+-copy-persistence-xml:
+
+-compile-depend:
+
+-do-compile:
+    [mkdir] Created dir: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\empty
+    [mkdir] Created dir: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\generated-sources\ap-source-output
+    [javac] Compiling 72 source files to D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\classes
+     [copy] Copying 2 files to D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B\classes
+
+-post-compile:
+
+compile:
+
+-pre-jar:
+
+-check-module-main-class:
+
+-set-module-main-class:
+
+-pre-pre-jar:
+
+-do-jar-create-manifest:
+
+-do-jar-copy-manifest:
+     [copy] Copying 1 file to D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build-launcher\B2F00465B2DE232B
+
+-do-jar-set-mainclass:
+
+-do-jar-set-profile:
+
+-do-jar-set-splashscreen:
+
+-check-do-mkdist:
+
+-do-jar-jar:
+[j2seproject1:jar] Building jar: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\dist\studyfix.jar
+     [echo] To run this application from the command line without Ant, try:
+     [echo] C:\Program Files\Java\jdk-26.0.2.1/bin/java -cp D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\lib\sqlite-jdbc-3.53.0.0.jar;D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\lib\Java-WebSocket-1.6.0.jar;D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\lib\slf4j-api-2.0.16.jar;D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\lib\slf4j-simple-2.0.16.jar;D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\dist\studyfix.jar studyfix.Studyfix
+
+-init-macrodef-copylibs:
+
+-do-jar-copylibs:
+
+-do-jar-delete-manifest:
+
+-do-jar-without-libraries:
+
+-do-jar-with-libraries:
+
+-post-jar:
+
+-do-jar:
+
+-pre-deploy:
+
+-check-jlink:
+
+-do-deploy:
+
+-post-deploy:
+
+deploy:
+
+jar:
+
+BUILD SUCCESSFUL
+Total time: 10 seconds
+Kh?i ch?y ch? d? d?y d?: control=5000, screen=5001, assignment=5002, web=8080
+M? web FE t?i http://localhost:8080
+D?ng b?ng Ctrl+C. Kh“ng ch?y d?ng th?i m?t server kh c d—ng c c c?ng 5000/5001/5002.
+2026-11-09T17:28:58.109383200Z Database: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\data\studyfix.db
+2026-11-09T17:28:58.116386400Z Screen relay ch?y ? c?ng 5001
+2026-11-09T17:28:58.367764500Z StudyFix Server ch?y ? c?ng 5000
+StudyFix assignment listener ch?y ? c?ng 5002
+StudyFix Web Gateway ch?y t?i http://0:0:0:0:0:0:0:0:8080
+FE source/fallback: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\web-client\static
+StudyFix full mode: control=5000, screen=5001, assignment=5002, web=8080
+2026-11-09T17:35:55.713894600Z Client k?t n?i: d85ec1c8-f787-41ab-9233-11278f3ef08a
+2026-11-09T17:35:56.307860Z ??ng nh?p Giáo viên demo (teacher) session=d85ec1c8-f787-41ab-9233-11278f3ef08a userId=6f947619-39d7-4caa-9ab3-29a6e6810900 role=TEACHER

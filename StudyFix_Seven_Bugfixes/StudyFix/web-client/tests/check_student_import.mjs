@@ -1,0 +1,13 @@
+import assert from "node:assert/strict";
+globalThis.document={querySelector:()=>null,addEventListener(){}};globalThis.sessionStorage={getItem:()=>null,setItem(){}};
+const {parseStudentCsv}=await import("../static/features/admin/student-import.js");
+let result=parseStudentCsv('\uFEFFusername,displayName,password\r\nsv1,"Nguyen, Van A",Password123!\r\nsv2,"Tran ""B""",Password234!\r\n');
+assert.equal(result.students.length,2);assert.equal(result.students[0].displayName,"Nguyen, Van A");assert.equal(result.students[1].displayName,'Tran "B"');assert.deepEqual(result.errors,[]);
+result=parseStudentCsv('Tài khoản;Họ và tên;Mật khẩu\nsv3;Nguyễn Văn A;Password123!');assert.equal(result.students[0].username,"sv3");assert.equal(result.errors.length,0);
+result=parseStudentCsv('username,displayName,password\nsv1,A,Password123!\nsv1,B,short');assert.equal(result.errors.length,1);assert.ok(result.errors[0].includes("2"));assert.ok(!JSON.stringify(result.errors).includes("short"));
+assert.throws(()=>parseStudentCsv('username,displayName,password\na,"unterminated,Password123!'));
+assert.throws(()=>parseStudentCsv('username,role,password\na,TEACHER,Password123!'));
+assert.throws(()=>parseStudentCsv('username,displayName,password\n'+Array.from({length:101},(_,i)=>`s${i},A,Password123!`).join("\n")));
+assert.throws(()=>parseStudentCsv('username,displayName,password\na,\uFFFD,Password123!'));
+assert.equal(parseStudentCsv('username,displayName,password\nsv1,"A\nB",Password123!').students[0].displayName,"A\nB");
+console.log("Student CSV import PASS: UTF-8 headers, comma/semicolon, escaped quotes, newlines, exact columns, duplicates, password validation and row limit.");

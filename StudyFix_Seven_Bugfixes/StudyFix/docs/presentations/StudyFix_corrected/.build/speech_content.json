@@ -1,0 +1,254 @@
+[
+  {
+    "title": "Giới thiệu StudyFix",
+    "paragraphs": [
+      "Kính thưa thầy cô và các bạn, nhóm em xin trình bày dự án StudyFix, một nền tảng hỗ trợ dạy và học lập trình tương tác. Hệ thống kết hợp phòng học trực tuyến, thực hành code và phản hồi kết quả trong cùng một không gian làm việc.",
+      "Điểm nhấn của dự án là giáo viên chuẩn bị code chung, học sinh thực hành trên nhánh riêng, sau đó giáo viên theo dõi và chọn một lời giải để đưa trở lại nội dung chung. Bên cạnh lớp học, hệ thống còn có luyện tập độc lập, giao bài, kỳ thi và các chức năng trao đổi bằng chat, mic, camera, chia sẻ màn hình. Trong bài trình bày này, nhóm em tập trung vào giao diện web và backend Java đang được sử dụng."
+    ],
+    "transition": "Trước hết, nhóm em xin trình bày bài toán mà hệ thống hướng tới.",
+    "reminder": "Tự điền tên nhóm và thành viên trước khi trình bày; không giới thiệu client Swing đã xóa như tính năng đang dùng."
+  },
+  {
+    "title": "Bài toán trong lớp học lập trình",
+    "paragraphs": [
+      "Trong giờ học lập trình, giáo viên cần biết học sinh đang sửa lỗi như thế nào để hỗ trợ đúng lúc. Nếu chỉ thu các file bài nộp cuối cùng, giáo viên khó quan sát những thay đổi trung gian và ngữ cảnh trao đổi khi học sinh gặp lỗi.",
+      "StudyFix tổ chức một điểm xuất phát chung bằng code Master. Từ đó, mỗi học sinh có một nhánh riêng để thực hành. Giáo viên có thể quan sát code và kết quả kiểm tra, mở lời giải cần xem, rồi chọn một nhánh để tiếp tục giảng. Đây là hướng thiết kế mà nhóm em triển khai; nhóm chưa dùng kết quả kiểm thử phần mềm để khẳng định đã đo được mức tăng hiệu quả học tập."
+    ],
+    "transition": "Từ nhu cầu đó, StudyFix được tổ chức thành các chức năng sau.",
+    "reminder": "Trình bày đây là bài toán và mục tiêu thiết kế, không nói đã khảo sát hoặc đo hiệu quả nếu chưa có dữ liệu."
+  },
+  {
+    "title": "Tổng quan StudyFix",
+    "paragraphs": [
+      "StudyFix có hai vai trò chính là giáo viên và học sinh. Giáo viên tạo phòng, chuẩn bị bài và điều khiển hoạt động trong phiên học. Học sinh tham gia phòng, xem code chung và làm việc trên nhánh của mình.",
+      "Workflow chính bắt đầu từ Master, sau đó tách nhánh để học sinh sửa code. Học sinh có thể chạy kiểm tra để nhận phản hồi. Khi cần chọn lời giải, giáo viên tạm khóa việc sửa và chọn nhánh để Merge về Master. Ngoài workflow lớp học, hệ thống còn có ngân hàng bài, bài được giao, luyện tập độc lập và kỳ thi. Chat cùng các chức năng cuộc họp giúp trao đổi ngay trong quá trình làm bài."
+    ],
+    "transition": "Để giải thích cách các thành phần trao đổi dữ liệu, em chuyển sang phần giao thức mạng.",
+    "reminder": "Check hỗ trợ giáo viên đánh giá; source hiện tại không bắt buộc nhánh phải AC mới được Merge."
+  },
+  {
+    "title": "Giao thức TCP và ranh giới thông điệp",
+    "paragraphs": [
+      "TCP cung cấp một dòng byte nên một lần gửi không bảo đảm tương ứng với đúng một lần đọc. Vì vậy, giao thức điều khiển và giao thức bài tập đều đặt bốn byte độ dài ở đầu, sau đó mới đến nội dung UTF-8. Độ dài này tính theo byte, tối đa 65.536 byte. Cổng 5000 dùng lệnh văn bản; cổng 5002 dùng JSON. Khi nhận, chương trình đọc đủ phần nội dung dựa trên độ dài đã biết.",
+      "Relay màn hình native ở cổng 5001 dùng định dạng khác: bốn byte độ dài, một byte loại và phần payload. Độ dài trong header tính cả byte loại, nên bằng một cộng số byte payload. Tổng phần đó tối đa hai MiB. Relay này còn trong backend, nhưng hình ảnh và âm thanh của giao diện web được truyền qua WebRTC."
+    ],
+    "transition": "Sau khi có cách đóng và đọc thông điệp, hệ thống cần xác định ai được thực hiện từng hành động.",
+    "reminder": "Big-endian đọc là byte có trọng số lớn được đặt trước. Không gọi 65.536 byte là 65.536 ký tự."
+  },
+  {
+    "title": "Vai trò và quyền hạn",
+    "paragraphs": [
+      "Giáo viên có thể tạo phòng và quản lý phòng do mình sở hữu. Trong phiên học, giáo viên chủ phòng chọn bài sửa lỗi, quản lý Master, mở vòng thực hành, tạm khóa sửa và Merge nhánh được chọn. Các chức năng giao bài và tạo kỳ thi cũng có kiểm tra quyền tương ứng ở backend.",
+      "Học sinh tham gia phòng, xem Master, chỉnh nhánh của chính mình khi phase cho phép và xem kết quả kiểm tra. Với phần luyện tập độc lập, cả giáo viên lẫn học sinh đều có thể làm bài bằng tài khoản của mình. Việc ẩn nút trên giao diện chỉ giúp người dùng thao tác thuận tiện; quyết định cuối cùng vẫn nằm ở server thông qua kiểm tra danh tính, chủ phòng, membership và trạng thái nghiệp vụ."
+    ],
+    "transition": "Các quyền này được áp dụng trong những nhóm chức năng trên slide tiếp theo.",
+    "reminder": "Không nói mọi giáo viên đều điều khiển được mọi phòng; chủ phòng là điều kiện quan trọng."
+  },
+  {
+    "title": "Các nhóm chức năng",
+    "paragraphs": [
+      "Các chức năng của StudyFix được chia thành những nhóm theo mục đích sử dụng. Phòng học quản lý thành viên, code chung, chat và lịch sử. Lớp học cộng tác bổ sung Master, nhánh riêng, vòng thực hành và lựa chọn lời giải.",
+      "Phần Assignment phục vụ giao bài có phạm vi người nhận và thời hạn. Practice phục vụ tự luyện, không yêu cầu phải vào một phòng. Contest tổ chức kỳ thi cá nhân và bảng xếp hạng. Cuối cùng, nhóm meeting cung cấp mic, camera và chia sẻ màn hình trên trình duyệt. Việc tách các ngữ cảnh giúp hệ thống áp dụng đúng quy tắc, chẳng hạn bài luyện tập cá nhân không bị buộc phải tạo một assignment của phòng."
+    ],
+    "transition": "Tiếp theo, nhóm em trình bày cách các chức năng này được ghép vào kiến trúc web và server.",
+    "reminder": "Phân biệt Practice, Assignment và nhánh lớp học; cùng có code nhưng không cùng một loại bài nộp."
+  },
+  {
+    "title": "Kiến trúc Web Client và Java Server",
+    "paragraphs": [
+      "Người dùng truy cập StudyFix bằng trình duyệt. Browser tải giao diện và gọi API HTTP hoặc HTTPS tới WebGatewayServer, mặc định ở cổng 8080. Bên trong backend có ba đường xử lý cần phân biệt.",
+      "Các lệnh điều khiển lõi như chat được gateway chuyển qua kết nối TCP nội bộ tới cổng 5000. Các hành động Master, nhánh và Merge được gọi trực tiếp tới ClassroomService trong cùng JVM. Nghiệp vụ luyện tập, bài tập và thi được gọi qua hàm handleWebRequest của AssignmentTcpServer rồi vào AssignmentService; web không mở socket 5002 cho yêu cầu này. Riêng media cuộc họp dùng WebRTC giữa các browser, còn gateway trao đổi tín hiệu thiết lập kết nối."
+    ],
+    "transition": "Với kiến trúc đó, các công nghệ sử dụng trong dự án được phân chia như sau.",
+    "reminder": "Khi chỉ sơ đồ, đọc từ Browser xuống Gateway, rồi phân biệt rõ TCP nội bộ với lời gọi hàm Java."
+  },
+  {
+    "title": "Công nghệ sử dụng",
+    "paragraphs": [
+      "Frontend sử dụng HTML, CSS và JavaScript theo ES Modules. Backend được viết bằng Java và tổ chức theo các lớp giao tiếp, service, repository và model. Dữ liệu được lưu bằng SQLite qua JDBC.",
+      "Web trao đổi JSON qua HTTP hoặc HTTPS, dùng bearer token để xác định phiên truy cập. Mic, camera và chia sẻ màn hình dùng WebRTC. Với chức năng chấm code, backend gọi Docker sandbox, mặc định dùng image eclipse-temurin phiên bản JDK 21. Trong cấu hình build hiện tại, server sử dụng JDK 26. Vì vậy cần phân biệt Java chạy ứng dụng server với Java chạy code bài nộp trong container."
+    ],
+    "transition": "Em xin đi vào cách tổ chức source phía trình duyệt trước.",
+    "reminder": "JavaScript phía browser không có nghĩa backend là Node.js. HTTPS chỉ hoạt động khi có cấu hình phù hợp."
+  },
+  {
+    "title": "Cấu trúc Web Client theo module",
+    "paragraphs": [
+      "Trình duyệt bắt đầu từ index.html, sau đó app.js ghép các module và khởi tạo ứng dụng. Thư mục core quản lý state, gọi API, sự kiện, điều hướng và polling. Thư mục features chứa logic của từng chức năng như đăng nhập, phòng học, lớp học, luyện tập và kỳ thi.",
+      "Thư mục ui chứa các phần dựng giao diện dùng chung, chẳng hạn component, modal và thông báo. Shared chứa các helper định dạng và tạo mã ngẫu nhiên. Hai file app.css và meeting.css nằm ở gốc thư mục static. Khi người dùng bấm nút, event handler gọi module tính năng; module gửi API rồi cập nhật state và render. Cách chia này giúp lần theo một thao tác mà không cần đọc toàn bộ ứng dụng trong một file lớn."
+    ],
+    "transition": "Phía server cũng được chia trách nhiệm, nhưng có thêm kết nối mạng và lưu trữ.",
+    "reminder": "24 module JS là kiểm kê tại thời điểm đối chiếu, không phải số dịch vụ độc lập."
+  },
+  {
+    "title": "Server lõi và các dịch vụ phối hợp",
+    "paragraphs": [
+      "Server.java nhận các kết nối TCP và quản lý phòng cùng các phiên đang chạy. Mỗi kết nối có một ClientHandler để đọc lệnh, xác thực, kiểm tra heartbeat và gửi phản hồi. Protocol định nghĩa cách đóng và mở frame.",
+      "Room giữ trạng thái của một phòng, gồm thành viên, code chung, version và quyền sửa. EditSession quản lý các thay đổi trên bản nháp theo dòng hoặc vùng. Store và các repository đọc ghi SQLite. Bên cạnh lõi có WebGatewayServer phục vụ web, ClassroomService điều khiển phiên học, AssignmentService xử lý bài và MeetingCalls quản lý signaling. Cửa sổ Server Manager dùng để vận hành các dịch vụ này; trang Tổng quan của giáo viên vẫn là giao diện client."
+    ],
+    "transition": "Trước khi một người dùng được thao tác với các dịch vụ, hệ thống phải tạo phiên đăng nhập hợp lệ.",
+    "reminder": "Queue gửi 64 thuộc từng ClientHandler; đây không phải một queue broadcast dùng chung cho mọi phòng."
+  },
+  {
+    "title": "Đăng nhập và ánh xạ phiên",
+    "paragraphs": [
+      "Đầu tiên, browser gửi tên đăng nhập và mật khẩu tới API login. Gateway mở socket tới server lõi và gửi lệnh login. Store đọc tài khoản, Passwords kiểm tra mật khẩu bằng PBKDF2 có salt và backend lấy role từ dữ liệu đã lưu.",
+      "Nếu hợp lệ, lõi trả LOGIN_OK cùng sessionId, userId, role và tên hiển thị. Gateway tạo WebSession, bearer token và peerId, rồi trả thông tin cần thiết cho browser. Browser giữ token trong sessionStorage và gửi lại ở header Authorization. SessionId xác định kết nối lõi, userId xác định tài khoản, token xác định phiên web và peerId phục vụ signaling. Các giá trị này liên hệ với nhau nhưng không phải cùng một định danh."
+    ],
+    "transition": "Sau khi đăng nhập, người dùng có thể tạo hoặc tham gia phòng học.",
+    "reminder": "Mật khẩu được băm, không phải mã hóa để đọc lại. Token hiện tại không được tự mô tả là JWT."
+  },
+  {
+    "title": "Vòng đời phòng học",
+    "paragraphs": [
+      "Giáo viên nhập mã phòng muốn tạo, sau đó chia sẻ mã cho học sinh. Hệ thống phân biệt mã công khai này với roomId nội bộ dùng để liên kết dữ liệu. Danh sách phòng có tìm kiếm và phân trang năm phòng mỗi trang.",
+      "Phòng trống vẫn được giữ để người dùng chủ động xóa. Khi chủ phòng xóa, backend đánh dấu phòng ngừng hoạt động, thay vì hiểu là phải xóa sạch mọi lịch sử. Cũng cần phân biệt rời cuộc họp và rời phòng: rời cuộc họp dừng media rồi về màn hình chính nhưng giữ membership; rời phòng là thao tác riêng để tách membership. Sau khi server restart, dữ liệu phòng có thể được đọc lại, còn các kết nối online cũ không tự tiếp tục sống."
+    ],
+    "transition": "Trong một phòng, nội dung giảng dạy được tổ chức bằng Master và các nhánh riêng.",
+    "reminder": "Năm phòng mỗi trang khác với mười bài hoặc phiên bản mỗi trang ở Practice."
+  },
+  {
+    "title": "Master và nhánh cá nhân",
+    "paragraphs": [
+      "Master là code chung do giáo viên kiểm soát. Khi thực hiện FORK, hệ thống tạo nhánh riêng từ Master cho các học sinh phù hợp đang online, phân biệt theo userId. Học sinh chỉnh nhánh của mình sẽ không làm code của bạn khác hoặc Master tự thay đổi.",
+      "Ví dụ, từ cùng một đoạn code lỗi, hai học sinh có thể sửa theo hai cách khác nhau. Mỗi người lưu và kiểm tra phiên bản riêng của mình. Khi giáo viên thực hiện FREEZE, backend tạm chặn việc lưu nhánh. Sau khi xem các lời giải, giáo viên có thể cho sửa tiếp hoặc chọn một nhánh để Merge. Merge ở đây dùng toàn bộ code của nhánh được chọn làm Master mới."
+    ],
+    "transition": "Những thao tác đó được giới hạn bằng các trạng thái của phiên học.",
+    "reminder": "Không gọi cơ chế này là Git three-way merge hoặc tự giải quyết xung đột giữa nhiều nhánh."
+  },
+  {
+    "title": "State machine của phiên học",
+    "paragraphs": [
+      "Phiên học bắt đầu ở WAITING. Giáo viên nhấn START để sang LECTURE và chuẩn bị Master. FORK chuyển sang BRANCHING để học sinh thực hành, còn FREEZE chuyển từ BRANCHING sang MERGING để chọn lời giải.",
+      "Từ MERGING có hai hướng khác nhau: RESUME quay lại BRANCHING để học sinh sửa tiếp trong cùng vòng; MERGE quay về LECTURE và cập nhật Master bằng nhánh được chọn. END đưa một phiên đang hoạt động sang ENDED. NEW_SESSION đưa ENDED về WAITING. Server kiểm tra phase, vòng và quyền người gọi trước khi thực hiện, nên một nút từ giao diện cũ không được áp dụng tùy ý vào trạng thái mới."
+    ],
+    "transition": "Em xin minh họa các trạng thái này bằng một buổi thực hành cụ thể.",
+    "reminder": "Chỉ đúng hai đường quay lại trên sơ đồ. END không được chấp nhận từ WAITING hoặc ENDED."
+  },
+  {
+    "title": "Diễn biến một phiên học",
+    "paragraphs": [
+      "Giáo viên tạo phòng, bắt đầu giảng và chọn một bài DEBUG_COLLAB để nạp starter vào Master. Sau khi chuẩn bị xong, giáo viên tách nhánh cho học sinh. Mỗi học sinh chỉnh sửa nhánh riêng và gửi lưu lên server.",
+      "Frontend có debounce khoảng một phẩy hai giây sau khi dừng gõ để thử lưu nhánh, nếu vẫn đúng phòng, vòng và phase. Khi bấm kiểm tra, frontend lưu nhánh trước; backend tạo snapshot của version đã lưu rồi đưa vào hàng đợi chấm. Giáo viên theo dõi, tạm khóa sửa và mở nhánh muốn chọn. Nếu Merge thành công, lời giải đó trở thành Master mới và lớp quay lại bước giảng."
+    ],
+    "transition": "Để tránh hai thao tác cũ mới ghi đè nhau, hệ thống dùng các thông tin phiên bản sau.",
+    "reminder": "Debounce không bảo đảm cứ đúng 1,2 giây là có bản ghi. Nháp chưa gửi trước FREEZE chưa được coi là đã lưu."
+  },
+  {
+    "title": "Version và kiểm soát ghi đè",
+    "paragraphs": [
+      "Khi lưu Master hoặc nhánh, client gửi phiên bản mà nó đang dựa vào. Nếu server đã có version mới hơn, request cũ sẽ bị từ chối. Chẳng hạn cùng một tài khoản mở hai tab, tab thứ nhất lưu nhánh từ v1 lên v2 thì tab còn lại không được âm thầm ghi đè bằng dữ liệu vẫn dựa trên v1.",
+      "Với Check, kết quả luôn gắn với snapshot và branchVersion đã chấm. Nếu sau đó nhánh đổi, giao diện có thể báo kết quả thuộc bản cũ. Khi Merge, backend kiểm tra thêm round, phase, nền Master và version nhánh. Các thay đổi liên quan được lưu bằng transaction trước, sau đó mới cập nhật trạng thái trong RAM và thông báo. Transaction này thuộc ngữ cảnh database liên quan, không bao trùm cả media hay toàn bộ hai database."
+    ],
+    "transition": "Ngoài bài sửa lỗi trong lớp, dự án còn có ngân hàng bài và chức năng giao bài.",
+    "reminder": "Token lượt sửa, Master version và branchVersion là các khái niệm khác nhau."
+  },
+  {
+    "title": "Ngân hàng bài và Assignment",
+    "paragraphs": [
+      "Ngân hàng bài lưu đề, thông tin đầu vào đầu ra, template hoặc starter và các test case. Giáo viên chọn bài để giao theo phạm vi cả phòng hoặc cá nhân, kèm thời hạn nếu có. Hệ thống lưu thông tin người nhận để theo dõi tiến độ trong ngữ cảnh bài được giao.",
+      "Khi học sinh mở hoặc nộp bài, service kiểm tra bài có thuộc phòng và người dùng có được phép truy cập hay không. Bài nộp được gắn với assignment tương ứng để giáo viên theo dõi. Với bài sửa lỗi cộng tác, source có quy tắc riêng về phạm vi cả phòng và code chung. Vì vậy, Assignment và nhánh lớp học có liên quan về nội dung học nhưng không được giải thích thành cùng một bản ghi dữ liệu."
+    ],
+    "transition": "Hai ngữ cảnh học tập tiếp theo là tự luyện và thi cá nhân.",
+    "reminder": "Recipient snapshot khác danh sách các kết nối đang online trong phòng."
+  },
+  {
+    "title": "Practice và Contest",
+    "paragraphs": [
+      "Practice cho phép người dùng chọn bài và luyện độc lập, không cần vào phòng hay chờ được giao bài. Người dùng có thể giữ nháp, chạy thử, nộp chính thức và xem lịch sử từng lần nộp. Tiến độ thuộc về tài khoản đang đăng nhập.",
+      "Contest là kỳ thi được quản lý theo phòng. Giáo viên chọn trực tiếp các bài từ ngân hàng, đặt thời gian bắt đầu và thời lượng; không phải tạo assignment trước. Hiện tại source hỗ trợ thi cá nhân với bài BUILD_FROM_SCRATCH. TEAM_COLLAB và bài DEBUG_COLLAB trong kỳ thi cá nhân chưa được bật. Thời gian trên browser hỗ trợ hiển thị, còn backend mới xác nhận một lần nộp có nằm trong thời hạn hợp lệ hay không."
+    ],
+    "transition": "Cả các luồng nộp bài này đều cần một bộ phận chấm code ở backend.",
+    "reminder": "Chạy thử Practice đúng chưa đủ kết luận nộp chính thức sẽ AC vì bộ test có thể khác nhau."
+  },
+  {
+    "title": "Luồng chấm code",
+    "paragraphs": [
+      "Khi nhận yêu cầu nộp, backend kiểm tra danh tính và dữ liệu, lưu snapshot source rồi đưa công việc vào queue. Worker lấy công việc, chuyển sang RUNNING và gọi sandbox biên dịch, chạy test. Sau đó backend lưu kết quả, còn web polling để cập nhật màn hình.",
+      "PRACTICE_RUN chỉ chạy test công khai; nộp chính thức dùng bộ test của bài. DONE là đã xử lý xong, còn verdict mới cho biết bài được chấp nhận, sai kết quả, lỗi biên dịch hoặc lỗi chạy. Nếu database tạm thời ghi lỗi sau khi chấm, worker giữ nguyên verdict và thử lưu lại, đồng thời ghi log và tăng bộ đếm chờ lưu. Lịch sử giữ source của từng submission nên sửa editor sau đó không làm thay đổi code đã nộp."
+    ],
+    "transition": "Sau đây là cách sandbox thực thi code và giới hạn tài nguyên.",
+    "reminder": "AC chỉ xác nhận đạt bộ test được thiết kế. Nếu database còn lỗi thì chưa được khẳng định kết quả đã lưu bền vững."
+  },
+  {
+    "title": "Docker sandbox",
+    "paragraphs": [
+      "Code bài nộp được ghi thành Main.java trong thư mục tạm. Backend dùng container để biên dịch, sau đó chạy từng test trong container riêng. Thư mục làm việc của bước compile được ghi; thư mục code khi chạy test được mount chỉ đọc và input được đưa qua stdin.",
+      "Cấu hình hiện tại tắt mạng của container, giới hạn bộ nhớ, CPU, số process, thời gian và dung lượng đầu ra. Filesystem gốc chỉ đọc, có vùng tmpfs phục vụ chạy. Image JDK 21 phải có sẵn vì lệnh chạy dùng pull bằng never. Nếu thiếu Docker hoặc image, hệ thống trả lỗi sandbox thay vì chuyển code học sinh sang chạy trực tiếp trong JVM server. Những biện pháp này giảm rủi ro thực thi, nhưng không phải chứng nhận an toàn tuyệt đối."
+    ],
+    "transition": "Bên cạnh code, lớp học còn cần các kênh giao tiếp trong lúc thực hành.",
+    "reminder": "Trong slide, CPU 0,5 là giới hạn tương đương một nửa CPU theo cấu hình Docker; pids-limit là giới hạn task/process của container."
+  },
+  {
+    "title": "Chat và cuộc họp",
+    "paragraphs": [
+      "Chat được xử lý như dữ liệu nghiệp vụ của phòng: tin nhắn được lưu vào SQLite trước khi broadcast. Frontend theo dõi mốc đã đọc theo tài khoản và phòng để hiển thị badge hoặc thông báo. Mốc này không đồng nghĩa đã có cơ chế server xác nhận từng người đã đọc trên mọi thiết bị.",
+      "Mic, camera và chia sẻ màn hình sử dụng WebRTC. Gateway chuyển offer, answer và ICE candidate để các browser thiết lập kết nối; media được trao đổi giữa các peer. Chia sẻ màn hình dùng getDisplayMedia. Âm thanh chia sẻ phụ thuộc track mà browser cung cấp và quyền hoặc lựa chọn của người dùng, nên thấy hình chưa bảo đảm có tiếng. Việc xem được camera bản thân cũng chưa chứng minh peer bên kia đã nhận được track."
+    ],
+    "transition": "Em xin giải thích tiếp cách frontend thường xuyên nhận trạng thái mới từ server.",
+    "reminder": "Không mô tả gateway hiện tại là SFU hay máy chủ chuyển tiếp toàn bộ media giống một nền tảng họp quy mô lớn."
+  },
+  {
+    "title": "Đồng bộ giao diện web",
+    "paragraphs": [
+      "Một thao tác trên web thường đi từ sự kiện click hoặc input tới feature module, sau đó qua helper API để gửi request. Backend kiểm tra và xử lý, rồi frontend cập nhật state và dựng lại giao diện. Các trường người dùng đang nhập cần được giữ trong state để không mất khi render lại.",
+      "Ngoài phản hồi trực tiếp, ứng dụng đặt polling với interval 1.600 mili giây để lấy sự kiện, chat, tín hiệu cuộc gọi và kết quả bài nộp. Đây là chu kỳ đặt lịch; nếu một lượt còn đang chờ thì lượt tiếp theo có thể bị bỏ qua. Vì vậy không thể hứa màn hình luôn cập nhật đúng mỗi một phẩy sáu giây. Một số module còn kiểm tra ngữ cảnh request để tránh response cũ áp vào tài khoản hoặc phòng đã đổi."
+    ],
+    "transition": "Các trạng thái lâu dài của hệ thống được lưu trong hai database sau.",
+    "reminder": "Polling HTTP khác WebSocket push. Lưu state giao diện khác lưu một bản ghi vào SQLite."
+  },
+  {
+    "title": "Hai database SQLite",
+    "paragraphs": [
+      "Core database lưu tài khoản, phòng, lịch sử code chung và dữ liệu phiên lớp học như session, nhánh, lượt kiểm tra, sự kiện và chat. Learning database lưu ngân hàng bài, test, assignment, bài nộp, kỳ thi và dữ liệu luyện tập.",
+      "Nhánh lớp học nằm trong core database để các thay đổi như revision Master và phase có thể được lưu nhất quán trong cùng transaction khi Merge. Với learning database, các repository đảm nhiệm truy vấn và lưu kết quả tương ứng. Việc dùng hai database là phân chia theo miền nghiệp vụ, không có nghĩa mỗi database là một server MySQL riêng. SQLite được truy cập bằng JDBC và các file dữ liệu; các kiểm tra quyền vẫn do gateway và service thực hiện."
+    ],
+    "transition": "Từ các thành phần trên, hệ thống có thể được chạy và truy cập qua mạng như sau.",
+    "reminder": "Các tên trên slide là nhóm dữ liệu; bảng thực tế của learning có nhiều tên bắt đầu bằng p3_."
+  },
+  {
+    "title": "Triển khai và kết nối máy khác",
+    "paragraphs": [
+      "Máy chạy backend sử dụng launcher Server Manager để build và khởi động các dịch vụ. Cấu hình hiện tại dùng JDK 26 và Ant; Docker cùng image JDK 21 cần sẵn sàng cho chức năng chấm code. Máy học sinh dùng browser truy cập web không phải cài Docker chỉ để nộp bài.",
+      "Trên máy server có thể mở localhost ở cổng 8080. Máy khác phải dùng IP hiện tại của máy server và đúng cổng, đồng thời có đường mạng và firewall cho phép. Nếu gõ localhost trên máy học sinh thì địa chỉ đó trỏ vào chính máy học sinh. Với camera, mic và chia sẻ màn hình trên mạng, còn phải kiểm tra quyền trình duyệt và HTTPS hoặc secure context phù hợp; kết nối được trang web chưa đủ để kết luận media đã hoạt động."
+    ],
+    "transition": "Phần tiếp theo là những kết quả kiểm thử đã có và phạm vi của chúng.",
+    "reminder": "Không đọc IP cũ như địa chỉ cố định của hệ thống. Nếu trình diễn trực tiếp, kiểm tra IP và dịch vụ trước buổi báo cáo."
+  },
+  {
+    "title": "Bằng chứng kiểm thử",
+    "paragraphs": [
+      "Đến ngày 4 tháng 11 năm 2026, bộ kiểm thử tích hợp backend đã có kết quả BUILD SUCCESSFUL trên cổng và database thử riêng. Nhóm kiểm tra độ tin cậy server có 19 kiểm tra, trong đó có tình huống rời phòng đồng thời, ngắt kết nối và lỗi ghi kết quả chấm.",
+      "Với Docker thật qua HTTP, đã có 25 kiểm tra cho các trường hợp được chấp nhận, sai kết quả và lỗi biên dịch. Tuy nhiên, kiểm thử signaling không xác nhận đường truyền camera hoặc mic thực tế giữa hai máy. Các test frontend có dùng DOM và HTTP mô phỏng cũng không thay thế nghiệm thu trên browser. Vì vậy nhóm em phân biệt rõ bằng chứng backend, Docker và các hạng mục còn cần kiểm tra thiết bị hoặc môi trường mạng thật."
+    ],
+    "transition": "Từ phạm vi kiểm chứng đó, em xin nêu những giới hạn cần hiểu đúng khi sử dụng hệ thống.",
+    "reminder": "Không nói đây là benchmark tải hoặc có tỷ lệ thành công thực tế của cả lớp. Log nằm trong server/build với tên server-reliability-full-regression.log và server-reliability-docker.log."
+  },
+  {
+    "title": "Giới hạn và dữ liệu lưu trữ",
+    "paragraphs": [
+      "Phiên web giữ token trên browser nhưng còn phụ thuộc ánh xạ phiên ở server. Sau khi backend restart, không thể xem token cũ là một phiên đã xác thực còn sống. Với nháp chưa lưu, phần lớp học dùng sessionStorage, còn Practice dùng localStorage cùng Map trong RAM. Code nhánh đã lưu và submission đã được tiếp nhận nằm trong database tương ứng.",
+      "Cuộc gọi hiện giới hạn 16 thiết bị trong một phòng. Source có STUN nhưng chưa triển khai TURN hoặc SFU riêng, nên cần kiểm tra điều kiện mạng thực tế. HTTP không mã hóa và Docker image phải có sẵn. Nếu database hoặc ổ đĩa vẫn không ghi được, cơ chế retry chỉ giúp theo dõi và thử lại; chưa thể khẳng định dữ liệu đã được lưu thành công."
+    ],
+    "transition": "Các giới hạn này giúp nhóm em xác định những ưu tiên hoàn thiện tiếp theo.",
+    "reminder": "16 là số thiết bị gọi, không phải số tài khoản của toàn hệ thống hoặc giới hạn mọi thành viên phòng học."
+  },
+  {
+    "title": "Trạng thái hoàn thiện và việc tiếp theo",
+    "paragraphs": [
+      "Backend đã được cập nhật ở các điểm xử lý đồng thời giữa lệnh và thao tác rời phòng, dọn heartbeat khi socket ngắt, thử ghi lại kết quả chấm và thu hẹp khóa khi xác thực mật khẩu. Transaction tạo version và cách Server Manager tải chi tiết phòng cũng đã được điều chỉnh, có kiểm thử hồi quy liên quan.",
+      "Các việc tiếp theo vẫn cần được tách khỏi phần đã hoàn thành. Frontend còn điểm cần sửa về binding refreshMe và cần kiểm tra nháp khi đổi tài khoản. Một script kiểm thử còn tham chiếu client Swing đã xóa. Nhóm cũng cần nghiệm thu browser thật, media trên hai máy LAN với HTTPS phù hợp và các kịch bản nhiều người thao tác đồng thời. Đây là các hướng hoàn thiện, không trình bày như đã được xác minh đầy đủ."
+    ],
+    "transition": "Cuối cùng, nhóm em xin tổng kết các thành phần và điểm nhấn của StudyFix.",
+    "reminder": "Nếu source được sửa thêm sau khi tài liệu này được lập, cập nhật lại mục việc còn tồn tại trước buổi trình bày."
+  },
+  {
+    "title": "Kết luận và mời câu hỏi",
+    "paragraphs": [
+      "StudyFix tổ chức việc dạy và thực hành lập trình quanh code Master và nhánh riêng của học sinh. Giáo viên theo dõi code, xem phản hồi kiểm tra và chọn lời giải để đưa trở lại nội dung chung. Những chức năng tự luyện, giao bài, thi và cuộc họp hỗ trợ các ngữ cảnh học tập liên quan.",
+      "Về kỹ thuật, web cung cấp giao diện; backend Java quản lý danh tính, quyền và nghiệp vụ; SQLite lưu dữ liệu; Docker thực thi code trong môi trường có giới hạn; WebRTC phục vụ trao đổi media. Nhóm em đã trình bày cả cơ chế hoạt động, phạm vi kiểm thử và các phần cần hoàn thiện. Phần trình bày của nhóm em xin kết thúc tại đây. Nhóm em cảm ơn thầy cô và các bạn đã lắng nghe, và xin nhận câu hỏi hoặc góp ý."
+    ],
+    "transition": "Dừng lại để nhận câu hỏi; chuyển sang demo nếu giảng viên yêu cầu.",
+    "reminder": "Khi trả lời, nêu phần đã có trong source và bằng chứng kiểm tra; không đoán thêm tính năng hoặc số liệu."
+  }
+]

@@ -1,0 +1,5 @@
+[1110/054316.698:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+Error: SyntaxError: Failed to execute 'querySelector' on 'Document': '[data-action=sp-page][data-page=2]' is not a valid selector.
+    at <anonymous>:1:10
+    at evaluate (D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\test\student-portal-browser.cjs:20:163)
+    at async main (D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\test\student-portal-browser.cjs:40:3)

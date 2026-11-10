@@ -1,0 +1,102 @@
+﻿[
+    {
+        "Name":  "check_admin.mjs",
+        "Exit":  0,
+        "Output":  "Admin frontend: role-scoped dashboards, users/classes/connections, actions, escaping and MySQL unavailable PASS (mocked HTTP/DOM)."
+    },
+    {
+        "Name":  "check_admission.mjs",
+        "Exit":  0,
+        "Output":  "Class admission frontend: request, pending button, rejection/retry, enrolled entry and account isolation PASS (mock HTTP/DOM)."
+    },
+    {
+        "Name":  "check_chat_notifications.mjs",
+        "Exit":  0,
+        "Output":  "Chat notifications: 27 checks PASS (synthetic HTTP/DOM)."
+    },
+    {
+        "Name":  "check_classroom.mjs",
+        "Exit":  0,
+        "Output":  "Classroom frontend: 45 behavioral checks PASS (synthetic DOM/HTTP; no browser E2E claim)."
+    },
+    {
+        "Name":  "check_class_tracking.mjs",
+        "Exit":  0,
+        "Output":  "Class tracking PASS: correct class/session joins, separate visits, legacy rows, 11 columns, filtering, disconnect and Student privacy."
+    },
+    {
+        "Name":  "check_contest_assignment.mjs",
+        "Exit":  0,
+        "Output":  "Contest assignment selection PASS: exact unique subset, valid pool, immutable input and invalid counts."
+    },
+    {
+        "Name":  "check_contest_file.mjs",
+        "Exit":  0,
+        "Output":  "Contest file PASS: same judging API, invalid/empty/oversize/binary files rejected, stale context and expiry guarded."
+    },
+    {
+        "Name":  "check_contest_form.mjs",
+        "Exit":  0,
+        "Output":  "Contest form: 12 checks passed"
+    },
+    {
+        "Name":  "check_dashboard_refresh.mjs",
+        "Exit":  0,
+        "Output":  "Dashboard refresh: registered auth refresh runs once; failures propagate PASS."
+    },
+    {
+        "Name":  "check_exam_monitoring.mjs",
+        "Exit":  0,
+        "Output":  "Exam frontend PASS: normal/exam paste, shortcut dedup, undo/typing, blur+hidden dedup, return, offline queue, mode off and Student guard (mock DOM/HTTP).\nBranch monitoring frontend PASS: paste guard, scoped events, Undo, visibility, freeze and disable."
+    },
+    {
+        "Name":  "check_imports.mjs",
+        "Exit":  0,
+        "Output":  "Checked 153 files.\nNo missing-export problems.\nNo import cycles found."
+    },
+    {
+        "Name":  "check_meeting.mjs",
+        "Exit":  0,
+        "Output":  "Meeting media: 29 checks PASS (synthetic WebRTC/devices; real media E2E not claimed)."
+    },
+    {
+        "Name":  "check_meeting_navigation.mjs",
+        "Exit":  0,
+        "Output":  "Meeting navigation: 21 checks PASS (mock HTTP/media/DOM)."
+    },
+    {
+        "Name":  "check_practice.mjs",
+        "Exit":  0,
+        "Output":  "Practice frontend: 28 checks PASS (HTTP/DOM mocks, no real browser claim)."
+    },
+    {
+        "Name":  "check_presence_socket.mjs",
+        "Exit":  0,
+        "Output":  "Presence socket frontend: 12 checks PASS (URL privacy, heartbeat, subscriptions, lifecycle, TLS URL; mocked transport)."
+    },
+    {
+        "Name":  "check_room_directory.mjs",
+        "Exit":  0,
+        "Output":  "Room directory: 28 checks PASS (synthetic HTTP/DOM)."
+    },
+    {
+        "Name":  "check_screen_audio.mjs",
+        "Exit":  0,
+        "Output":  "Screen audio: 13 checks PASS (capture/RTC/DOM mocks; real browser playback not tested)."
+    },
+    {
+        "Name":  "check_student_connections.mjs",
+        "Exit":  0,
+        "Output":  "Student connection UI: 10 checks PASS (render/privacy, not real-browser E2E)."
+    },
+    {
+        "Name":  "check_student_import.mjs",
+        "Exit":  0,
+        "Output":  "Student CSV import PASS: UTF-8 headers, comma/semicolon, escaped quotes, newlines, exact columns, duplicates, password validation and row limit."
+    },
+    {
+        "Name":  "check_teacher_roles.mjs",
+        "Exit":  0,
+        "Output":  "Teacher roles/UI: navigation isolation, home restore, pagination and Student private-data guard PASS."
+    }
+]

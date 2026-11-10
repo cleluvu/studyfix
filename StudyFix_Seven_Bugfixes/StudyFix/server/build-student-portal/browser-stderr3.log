@@ -1,0 +1,29 @@
+[1110/054120.494:ERROR:third_party\crashpad\crashpad\util\win\registration_protocol_win.cc:108] CreateFile: Access is denied. (0x5)
+Error: Timeout: !!document.querySelector(".student-portal .sp-stats"); </>
+StudyFix
+Học cùng nhau · Tiến bộ mỗi ngày
+CODING · COLLABORATION · PROGRESS
+Học lập trình.
+Cùng nhau tiến bộ.
+
+Không gian học lập trình trực tuyến dành cho giáo viên và học sinh — từ luyện tập, chấm bài tự động đến cộng tác sửa lỗi và chia sẻ màn hình.
+
+01
+Bài tập & chấm tự động
+02
+Code cộng tác trực tiếp
+03
+Thi & bảng xếp hạng
+StudyFix · Học tập thực hành cho lớp học lập trình
+WELCOME BACK
+Đăng nhập
+
+Đăng nhập bằng tài khoản StudyFix được cấp bởi hệ thống.
+
+Mã sinh viên / tài khoản giảng viên
+Mật khẩu
+Đăng nhập vào StudyFix
+→
+Máy chủ sử dụng tài khoản hiện có trong database StudyFix. Không có tài khoản demo giả được tạo tự động trên giao diện.
+    at wait (D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\test\student-portal-browser.cjs:21:149)
+    at async main (D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\test\student-portal-browser.cjs:24:3)

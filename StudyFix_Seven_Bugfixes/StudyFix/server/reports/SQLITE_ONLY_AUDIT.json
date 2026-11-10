@@ -1,0 +1,155 @@
+{
+  "date": "2026-11-09",
+  "engine": "sqlite",
+  "backup": "backups\\before-sqlite-only-20261109-212328",
+  "databases": {
+    "studyfix.db": {
+      "integrity": [
+        "ok"
+      ],
+      "foreign_key_errors": 0,
+      "row_counts": {
+        "users": 8,
+        "rooms": 25,
+        "sqlite_sequence": 3,
+        "revisions": 61,
+        "classroom_schema": 2,
+        "classroom_sessions": 12,
+        "classroom_branches": 38,
+        "classroom_checks": 66,
+        "classroom_events": 130,
+        "classroom_chat": 15,
+        "network_sessions": 4,
+        "classroom_connections": 3,
+        "management_metadata": 1
+      },
+      "original_accounts_preserved": true,
+      "original_account_count": 8
+    },
+    "studyfix-management.db": {
+      "integrity": [
+        "ok"
+      ],
+      "foreign_key_errors": 0,
+      "row_counts": {
+        "schema_migrations": 1,
+        "runtime_binding": 1,
+        "users": 8,
+        "classes": 25,
+        "class_members": 5,
+        "sessions": 58,
+        "attendance": 38,
+        "class_admissions": 18
+      },
+      "original_accounts_preserved": true,
+      "original_account_count": 8
+    },
+    "studyfix-learning.db": {
+      "integrity": [
+        "ok"
+      ],
+      "foreign_key_errors": 0,
+      "row_counts": {
+        "p3_schema_meta": 1,
+        "p3_exercises": 148,
+        "p3_test_cases": 498,
+        "sqlite_sequence": 6,
+        "p3_assignments": 10,
+        "p3_submissions": 1,
+        "p3_test_results": 3,
+        "p3_contests": 8,
+        "p3_contest_submissions": 0,
+        "p3_shared_check_runs": 1,
+        "p3_assignment_recipient_snapshots": 10,
+        "p3_assignment_recipients": 10,
+        "p3_teacher_trials": 0,
+        "p3_teacher_trial_test_results": 0,
+        "p3_contest_problems": 37,
+        "p3_contest_problem_submissions": 5,
+        "p3_contest_test_results": 12,
+        "p3_practice_submissions": 6,
+        "p3_exam_modes": 1,
+        "p3_exam_sessions": 6,
+        "p3_exam_events": 100,
+        "p3_exam_migrations": 1,
+        "p3_branch_exam_modes": 3,
+        "p3_branch_exam_sessions": 6,
+        "p3_branch_exam_events": 28,
+        "p3_branch_exam_migrations": 1,
+        "p3_contest_distribution": 2,
+        "p3_contest_draws": 0,
+        "p3_contest_student_problems": 0,
+        "p3_contest_audience": 0,
+        "p3_question_weeks": 12,
+        "p3_question_week_items": 120,
+        "p3_question_bank": 148,
+        "p3_builder_drafts": 14,
+        "p3_builder_history": 101,
+        "p3_builder_sequences": 1,
+        "p3_builder_checks": 14,
+        "p3_builder_assets": 0,
+        "p3_oj_exercises": 123,
+        "p3_oj_imports": 2,
+        "p3_oj_settings": 1,
+        "p3_builder_workflow": 3,
+        "p3_builder_jobs": 11,
+        "p3_builder_publications": 3,
+        "p3_builder_public_assets": 0,
+        "p3_exam_bank": 0,
+        "p3_exam_versions": 0,
+        "p3_exam_version_items": 0,
+        "p3_exam_history": 0,
+        "p3_exam_contests": 0
+      }
+    }
+  },
+  "runtime": {
+    "health": {
+      "ok": true,
+      "service": "StudyFix Web Gateway",
+      "scheme": "http",
+      "webPort": 8080,
+      "controlPort": 5000,
+      "assignmentPort": 5002,
+      "managementDatabase": "sqlite",
+      "webSocket": {
+        "enabled": true,
+        "port": 8081,
+        "path": "/presence",
+        "tls": false
+      },
+      "time": 1794235846716
+    },
+    "frontend_http_status": 200,
+    "obsolete_jar_entries": [],
+    "obsolete_driver_in_manifest": false,
+    "libraries": [
+      "Java-WebSocket-1.6.0.jar",
+      "slf4j-api-2.0.16.jar",
+      "slf4j-simple-2.0.16.jar",
+      "sqlite-jdbc-3.53.0.0.jar"
+    ]
+  },
+  "frontend": {
+    "passed": 21,
+    "failed": 0
+  },
+  "limitations": [
+    "Docker Engine is not running; real container grading has not been revalidated.",
+    "Oracle JDK rejects unsigned test JCE providers; the controlled PBKDF pause is explicitly skipped, while real authentication and password cleanup are verified."
+  ],
+  "backend_verification": {
+    "status": "passed; one JDK-specific controlled-provider test skipped explicitly",
+    "management_assertions": 124,
+    "prefix_log": "build-sqlite-only-final.log",
+    "remaining_log": "build-sqlite-only-remaining.log",
+    "remaining_build_successful": true,
+    "coverage": "All groups in integration-test plus exam-bank-test; previously passing groups retained, remaining groups and integration target body completed through generated build-sqlite-only/verification.xml.",
+    "sqlite_constraint_http_409_and_rollback": "passed",
+    "jdk_skip": "Unsigned test JCE provider rejected by Oracle JDK. Real authentication/password cleanup verified; no JVM security policy changed."
+  },
+  "source_verification": {
+    "files_scanned": 201,
+    "obsolete_engine_references": []
+  }
+}

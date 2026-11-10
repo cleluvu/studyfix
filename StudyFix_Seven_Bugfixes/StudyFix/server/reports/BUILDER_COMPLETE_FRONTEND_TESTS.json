@@ -1,0 +1,102 @@
+﻿[
+    {
+        "output":  "Admin frontend: role-scoped dashboards, users/classes/connections, actions, escaping and MySQL unavailable PASS (mocked HTTP/DOM).",
+        "exitCode":  0,
+        "test":  "check_admin.mjs"
+    },
+    {
+        "output":  "Class admission frontend: request, pending button, rejection/retry, enrolled entry and account isolation PASS (mock HTTP/DOM).",
+        "exitCode":  0,
+        "test":  "check_admission.mjs"
+    },
+    {
+        "output":  "Chat notifications: 27 checks PASS (synthetic HTTP/DOM).",
+        "exitCode":  0,
+        "test":  "check_chat_notifications.mjs"
+    },
+    {
+        "output":  "Classroom frontend: 45 behavioral checks PASS (synthetic DOM/HTTP; no browser E2E claim).",
+        "exitCode":  0,
+        "test":  "check_classroom.mjs"
+    },
+    {
+        "output":  "Class tracking PASS: correct class/session joins, separate visits, legacy rows, 11 columns, filtering, disconnect and Student privacy.",
+        "exitCode":  0,
+        "test":  "check_class_tracking.mjs"
+    },
+    {
+        "output":  "Contest assignment selection PASS: exact unique subset, valid pool, immutable input and invalid counts.",
+        "exitCode":  0,
+        "test":  "check_contest_assignment.mjs"
+    },
+    {
+        "output":  "Contest file PASS: same judging API, invalid/empty/oversize/binary files rejected, stale context and expiry guarded.",
+        "exitCode":  0,
+        "test":  "check_contest_file.mjs"
+    },
+    {
+        "output":  "Contest form: 12 checks passed",
+        "exitCode":  0,
+        "test":  "check_contest_form.mjs"
+    },
+    {
+        "output":  "Dashboard refresh: registered auth refresh runs once; failures propagate PASS.",
+        "exitCode":  0,
+        "test":  "check_dashboard_refresh.mjs"
+    },
+    {
+        "output":  "Exam frontend PASS: normal/exam paste, shortcut dedup, undo/typing, blur+hidden dedup, return, offline queue, mode off and Student guard (mock DOM/HTTP).\nBranch monitoring frontend PASS: paste guard, scoped events, Undo, visibility, freeze and disable.",
+        "exitCode":  0,
+        "test":  "check_exam_monitoring.mjs"
+    },
+    {
+        "output":  "Checked 158 files.\nNo missing-export problems.\nNo import cycles found.",
+        "exitCode":  0,
+        "test":  "check_imports.mjs"
+    },
+    {
+        "output":  "Meeting media: 29 checks PASS (synthetic WebRTC/devices; real media E2E not claimed).",
+        "exitCode":  0,
+        "test":  "check_meeting.mjs"
+    },
+    {
+        "output":  "Meeting navigation: 21 checks PASS (mock HTTP/media/DOM).",
+        "exitCode":  0,
+        "test":  "check_meeting_navigation.mjs"
+    },
+    {
+        "output":  "Practice frontend: 28 checks PASS (HTTP/DOM mocks, no real browser claim).",
+        "exitCode":  0,
+        "test":  "check_practice.mjs"
+    },
+    {
+        "output":  "Presence socket frontend: 12 checks PASS (URL privacy, heartbeat, subscriptions, lifecycle, TLS URL; mocked transport).",
+        "exitCode":  0,
+        "test":  "check_presence_socket.mjs"
+    },
+    {
+        "output":  "Room directory: 28 checks PASS (synthetic HTTP/DOM).",
+        "exitCode":  0,
+        "test":  "check_room_directory.mjs"
+    },
+    {
+        "output":  "Screen audio: 13 checks PASS (capture/RTC/DOM mocks; real browser playback not tested).",
+        "exitCode":  0,
+        "test":  "check_screen_audio.mjs"
+    },
+    {
+        "output":  "Student connection UI: 10 checks PASS (render/privacy, not real-browser E2E).",
+        "exitCode":  0,
+        "test":  "check_student_connections.mjs"
+    },
+    {
+        "output":  "Student CSV import PASS: UTF-8 headers, comma/semicolon, escaped quotes, newlines, exact columns, duplicates, password validation and row limit.",
+        "exitCode":  0,
+        "test":  "check_student_import.mjs"
+    },
+    {
+        "output":  "Teacher roles/UI: navigation isolation, home restore, pagination and Student private-data guard PASS.",
+        "exitCode":  0,
+        "test":  "check_teacher_roles.mjs"
+    }
+]

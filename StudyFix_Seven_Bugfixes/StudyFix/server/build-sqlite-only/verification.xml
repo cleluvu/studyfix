@@ -1,0 +1,129 @@
+<?xml version='1.0' encoding='utf-8'?>
+<project name="sqlite-only-verification" default="verify-remaining" basedir="..">
+  <import file="../build.xml" />
+  <target name="verify-remaining" depends="sqlite-management-test,server-reliability-test,lan-presence-test,websocket-presence-test,exam-mode-test,question-week-test,question-bank-test,exam-bank-test" description="Java 26 compile + real TCP/SQLite tests on localhost">
+    <mkdir dir="${build.dir}/integration-classes" />
+    <javac srcdir="src" destdir="${build.dir}/integration-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
+      <classpath path="${javac.classpath}" />
+    </javac>
+    <javac srcdir="test" destdir="${build.dir}/integration-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+    </javac>
+    <java classname="studyfix.assignment.AssignmentModuleSelfTest" fork="true" failonerror="true" timeout="60000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+    </java>
+    <java classname="studyfix.assignment.AssignmentProtocolIntegrationTest" fork="true" failonerror="true" timeout="90000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+    </java>
+    <java classname="studyfix.EditSessionTest" fork="true" failonerror="true" timeout="90000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+    </java>
+    <java classname="studyfix.RecoveryTest" fork="true" failonerror="true" timeout="60000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+    </java>
+    <java classname="studyfix.HistoryTest" fork="true" failonerror="true" timeout="60000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+    </java>
+    <java classname="studyfix.IntegrationTest" fork="true" failonerror="true" timeout="120000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+    </java>
+    <java classname="studyfix.WebGatewayIntegrationTest" fork="true" failonerror="true" timeout="45000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+    </java>
+    <java classname="studyfix.ScreenShareRelayIntegrationTest" fork="true" failonerror="true" timeout="60000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="--enable-native-access=ALL-UNNAMED" />
+    </java>
+    <java classname="studyfix.PersonOneTest" fork="true" failonerror="true" timeout="90000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+    </java>
+    <java classname="studyfix.ServerAdminLiveTest" fork="true" failonerror="true" timeout="90000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstudyfix.screen.port=0" />
+      <jvmarg value="-Dstudyfix.assignment.port=0" />
+      <jvmarg value="-Dstudyfix.web.port=0" />
+    </java>
+    <java classname="studyfix.ConsoleHistoryInterleaveTest" fork="true" failonerror="true" timeout="30000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+    </java>
+    <java classname="studyfix.ConsoleClientTest" fork="true" failonerror="true" timeout="60000">
+      <sysproperty key="studyfix.legacy.sqlite" value="true" />
+      <jvmarg value="-Dfile.encoding=UTF-8" />
+      <sysproperty key="studyfix.test.accounts" value="${basedir}/test/fixtures/accounts.tsv" />
+      <sysproperty key="studyfix.management.db" value="sqlite" />
+      <jvmarg value="-Dstdout.encoding=UTF-8" />
+      <jvmarg value="-Dstderr.encoding=UTF-8" />
+      <classpath path="${javac.classpath};${build.dir}/integration-classes" />
+    </java>
+  </target>
+</project>

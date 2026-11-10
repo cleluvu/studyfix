@@ -1,0 +1,7 @@
+Server d?ng v?i exit code -1
+At D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\run-with-assignments.ps1:34 char:28
++ ... STEXITCODE -ne 0) { throw "Server d?ng v?i exit code $LASTEXITCODE" }
++                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Server d?ng v?i exit code -1:String) [], RuntimeException
+    + FullyQualifiedErrorId : Server d?ng v?i exit code -1
+ 

@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+globalThis.sessionStorage={getItem:()=>null,setItem(){}};
+const root={innerHTML:""};
+globalThis.document={querySelector:selector=>selector==="#app"?root:null,querySelectorAll:()=>[],addEventListener(){}};
+const {state}=await import("../static/core/state.js");
+const {setRoomJoinedHandler,refreshEverything}=await import("../static/core/polling.js");
+state.booting=true;
+let calls=0;
+setRoomJoinedHandler(async()=>{calls++;state.identity={userId:"teacher",role:"TEACHER"};});
+await refreshEverything();
+assert.equal(calls,1);
+assert.equal(state.identity.userId,"teacher");
+setRoomJoinedHandler(async()=>{throw new Error("expired session");});
+await assert.rejects(refreshEverything(),/expired session/);
+console.log("Dashboard refresh: registered auth refresh runs once; failures propagate PASS.");

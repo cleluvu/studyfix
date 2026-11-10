@@ -1,0 +1,28 @@
+# Sensitive files
+cookies.txt
+*.env
+.env.*
+!.env.example
+
+# Databases
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Java build
+target/
+build/
+*.class
+
+# Node.js
+node_modules/
+dist/
+
+# Python
+__pycache__/
+.venv/
+
+# IDE
+.idea/
+.vscode/

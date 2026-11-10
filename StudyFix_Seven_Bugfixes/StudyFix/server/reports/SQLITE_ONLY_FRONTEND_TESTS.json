@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-09",
+  "engine": "sqlite",
+  "passed": 21,
+  "failed": 0,
+  "tests": [
+    "check_admin.mjs",
+    "check_admission.mjs",
+    "check_chat_notifications.mjs",
+    "check_class_tracking.mjs",
+    "check_classroom.mjs",
+    "check_contest_assignment.mjs",
+    "check_contest_file.mjs",
+    "check_contest_form.mjs",
+    "check_dashboard_refresh.mjs",
+    "check_exam_monitoring.mjs",
+    "check_imports.mjs",
+    "check_meeting.mjs",
+    "check_meeting_navigation.mjs",
+    "check_practice.mjs",
+    "check_presence_socket.mjs",
+    "check_room_directory.mjs",
+    "check_screen_audio.mjs",
+    "check_seven_bugfixes.mjs",
+    "check_student_connections.mjs",
+    "check_student_import.mjs",
+    "check_teacher_roles.mjs"
+  ],
+  "scope": "Node.js frontend regression checks; mocked HTTP/DOM where specified by each test."
+}

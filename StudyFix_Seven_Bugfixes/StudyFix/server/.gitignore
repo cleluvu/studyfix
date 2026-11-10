@@ -1,0 +1,10 @@
+/build/
+/dist/
+/data/
+/backups/
+/nbproject/private/
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example

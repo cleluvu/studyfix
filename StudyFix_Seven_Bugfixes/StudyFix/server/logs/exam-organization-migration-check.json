@@ -1,0 +1,38 @@
+{
+  "studyfix-learning.db": {
+    "quickCheck": "ok",
+    "foreignKeyErrors": 0,
+    "changedExistingTables": {},
+    "addedTables": {
+      "p3_eo_drafts": 0,
+      "p3_eo_exams": 8,
+      "p3_eo_candidates": 16,
+      "p3_eo_rooms": 0,
+      "p3_eo_proctors": 0,
+      "p3_eo_audit": 0,
+      "p3_eo_messages": 0,
+      "p3_eo_grade_history": 0,
+      "p3_eo_adjustments": 0,
+      "p3_eo_publications": 0,
+      "p3_eo_code_drafts": 0,
+      "p3_eo_migrations": 1
+    },
+    "changedExistingTableContents": []
+  },
+  "studyfix-management.db": {
+    "quickCheck": "ok",
+    "foreignKeyErrors": 0,
+    "changedExistingTables": {},
+    "addedTables": {},
+    "changedExistingTableContents": [
+      "sessions"
+    ]
+  },
+  "studyfix.db": {
+    "quickCheck": "ok",
+    "foreignKeyErrors": 0,
+    "changedExistingTables": {},
+    "addedTables": {},
+    "changedExistingTableContents": []
+  }
+}

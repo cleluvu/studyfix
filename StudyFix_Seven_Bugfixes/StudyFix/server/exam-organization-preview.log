@@ -1,0 +1,47 @@
+2026-11-09T16:12:13.816591700Z Database: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\server\build\exam-organization-6158932203418390314\core.db
+2026-11-09T16:12:13.838804700Z Screen relay ch?y ? c?ng 56019
+2026-11-09T16:12:15.531910500Z StudyFix Server ch?y ? c?ng 56018
+StudyFix assignment listener ch?y ? c?ng 56020
+StudyFix Web Gateway ch?y t?i http://0:0:0:0:0:0:0:0:56021
+FE source/fallback: D:\StudyFix_Seven_Bugfixes (4)\StudyFix_Seven_Bugfixes\StudyFix\web-client\static
+2026-11-09T16:12:16.325897300Z Client k?t n?i: 7719939d-6442-4588-94aa-de77c09a8834
+2026-11-09T16:12:16.943932300Z ??ng nh?p Gi?ng viên chính (teacher) session=7719939d-6442-4588-94aa-de77c09a8834 userId=b034efe7-210b-4fd8-90e4-b1ec2400189a role=TEACHER
+2026-11-09T16:12:17.107688900Z Client k?t n?i: e3c4a5fa-3590-4199-aca0-4a7af7715d34
+2026-11-09T16:12:17.359189400Z ??ng nh?p Cán b? coi thi (teacher2) session=e3c4a5fa-3590-4199-aca0-4a7af7715d34 userId=563a4395-ada2-48d7-9b7d-69a25062dfec role=TEACHER
+2026-11-09T16:12:17.388576700Z Client k?t n?i: 5de42246-6a11-47b9-a100-4233f36ba667
+2026-11-09T16:12:17.671331300Z ??ng nh?p Gi?ng viên khác (outsider) session=5de42246-6a11-47b9-a100-4233f36ba667 userId=8b0367b1-0c83-44ad-b82c-44b16e687fff role=TEACHER
+2026-11-09T16:12:17.695403600Z Client k?t n?i: 008fdd41-4d48-4812-8018-0decceb34959
+2026-11-09T16:12:17.943091800Z ??ng nh?p Nguy?n Minh Anh (student1) session=008fdd41-4d48-4812-8018-0decceb34959 userId=981a4a34-6b09-433b-ae7b-4980ed221417 role=STUDENT
+2026-11-09T16:12:17.968269Z Client k?t n?i: 379a811c-2b87-4a90-8273-b190ca5ca9c2
+2026-11-09T16:12:18.261429600Z ??ng nh?p Tr?n Quang Huy (student2) session=379a811c-2b87-4a90-8273-b190ca5ca9c2 userId=d41518a3-5391-4028-8baa-fc68edcfe4d6 role=STUDENT
+2026-11-09T16:12:18.293244800Z Client k?t n?i: d75807b6-3a52-47f8-8bdf-ad92e2a14b10
+2026-11-09T16:12:18.707853600Z ??ng nh?p Ngoài danh sách (student3) session=d75807b6-3a52-47f8-8bdf-ad92e2a14b10 userId=8176fc46-786b-4780-b341-36ba48c17972 role=STUDENT
+2026-11-09T16:12:18.803110300Z T?o phòng JAVA_A [ID=1] b?i Gi?ng viên chính (teacher) userId=b034efe7-210b-4fd8-90e4-b1ec2400189a
+2026-11-09T16:12:18.841069400Z T?o phòng JAVA_B [ID=2] b?i Gi?ng viên chính (teacher) userId=b034efe7-210b-4fd8-90e4-b1ec2400189a
+BROWSER_FIXTURE {"base":"http://127.0.0.1:56021","directory":"D:\\StudyFix_Seven_Bugfixes (4)\\StudyFix_Seven_Bugfixes\\StudyFix\\server\\build\\exam-organization-6158932203418390314","contestId":"f6a33545-18d6-4930-9071-ca0a7cc50cb5","templateId":"aab792a1-05ce-44af-9328-e0e84be57597"}
+2026-11-09T16:13:23.080619400Z Client k?t n?i: 98a9fd6b-d7bf-4f98-8420-357b5e6516b0
+2026-11-09T16:13:23.696586700Z ??ng nh?p Gi?ng viên chính (teacher) session=98a9fd6b-d7bf-4f98-8420-357b5e6516b0 userId=b034efe7-210b-4fd8-90e4-b1ec2400189a role=TEACHER
+2026-11-09T16:13:36.094546500Z Client k?t n?i: 89e4a25f-623e-4c08-a603-f4617193e75a
+2026-11-09T16:13:36.379388200Z ??ng nh?p Nguy?n Minh Anh (student1) session=89e4a25f-623e-4c08-a603-f4617193e75a userId=981a4a34-6b09-433b-ae7b-4980ed221417 role=STUDENT
+2026-11-09T16:13:38.270236400Z Client k?t n?i: d15a8015-93ef-437f-83fe-b84a87498024
+2026-11-09T16:13:38.508238100Z ??ng nh?p Ngoài danh sách (student3) session=d15a8015-93ef-437f-83fe-b84a87498024 userId=8176fc46-786b-4780-b341-36ba48c17972 role=STUDENT
+Client ?ã ?óng k?t n?i: 5de42246-6a11-47b9-a100-4233f36ba667
+Client ?ã ?óng k?t n?i: d75807b6-3a52-47f8-8bdf-ad92e2a14b10
+Client ?ã ?óng k?t n?i: 379a811c-2b87-4a90-8273-b190ca5ca9c2
+Client ?ã ?óng k?t n?i: 008fdd41-4d48-4812-8018-0decceb34959
+Client ?ã ?óng k?t n?i: 7719939d-6442-4588-94aa-de77c09a8834
+Client ?ã ?óng k?t n?i: e3c4a5fa-3590-4199-aca0-4a7af7715d34
+Client ?ã ?óng k?t n?i: 89e4a25f-623e-4c08-a603-f4617193e75a
+Client ?ã ?óng k?t n?i: 98a9fd6b-d7bf-4f98-8420-357b5e6516b0
+Client ?ã ?óng k?t n?i: d15a8015-93ef-437f-83fe-b84a87498024
+2026-11-09T16:16:53.431240400Z Client k?t n?i: 69641593-005d-41db-b46a-50dea7dcc82a
+2026-11-09T16:16:54.131277900Z ??ng nh?p Gi?ng viên chính (teacher) session=69641593-005d-41db-b46a-50dea7dcc82a userId=b034efe7-210b-4fd8-90e4-b1ec2400189a role=TEACHER
+2026-11-09T16:17:11.499012200Z Client k?t n?i: 8b068a3c-4056-46fa-8d39-8bb12f2d154c
+2026-11-09T16:17:12.122923100Z ??ng nh?p Nguy?n Minh Anh (student1) session=8b068a3c-4056-46fa-8d39-8bb12f2d154c userId=981a4a34-6b09-433b-ae7b-4980ed221417 role=STUDENT
+2026-11-09T16:17:17.465708500Z Client k?t n?i: 66b109a2-da4c-4a0b-842e-4c42720be924
+2026-11-09T16:17:18.243770Z ??ng nh?p Ngoài danh sách (student3) session=66b109a2-da4c-4a0b-842e-4c42720be924 userId=8176fc46-786b-4780-b341-36ba48c17972 role=STUDENT
+Client ?ã ?óng k?t n?i: 8b068a3c-4056-46fa-8d39-8bb12f2d154c
+Client ?ã ?óng k?t n?i: 69641593-005d-41db-b46a-50dea7dcc82a
+Client ?ã ?óng k?t n?i: 66b109a2-da4c-4a0b-842e-4c42720be924
+2026-11-09T16:29:37.280625900Z Client k?t n?i: 5c436fd2-e301-4390-9413-f5b568ceb69a
+2026-11-09T16:29:37.820427700Z ??ng nh?p Gi?ng viên chính (teacher) session=5c436fd2-e301-4390-9413-f5b568ceb69a userId=b034efe7-210b-4fd8-90e4-b1ec2400189a role=TEACHER

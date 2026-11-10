@@ -1,0 +1,15 @@
+-- Additive SQLite organization schema. Cross-file user/class identities are service-validated snapshots.
+CREATE TABLE IF NOT EXISTS p3_eo_drafts(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1,document_json TEXT NOT NULL,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS p3_eo_exams(contest_id TEXT PRIMARY KEY REFERENCES p3_contests(id),code TEXT NOT NULL COLLATE NOCASE UNIQUE,subject TEXT NOT NULL DEFAULT '',description TEXT NOT NULL DEFAULT '',timezone TEXT NOT NULL DEFAULT 'Asia/Bangkok',state TEXT NOT NULL DEFAULT 'PUBLISHED',locked INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 1,policy_json TEXT NOT NULL DEFAULT '{}',classes_json TEXT NOT NULL DEFAULT '[]',draft_id TEXT UNIQUE,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS p3_eo_candidates(contest_id TEXT NOT NULL REFERENCES p3_contests(id),user_id TEXT NOT NULL,username TEXT NOT NULL,student_code TEXT NOT NULL,display_name TEXT NOT NULL,class_id TEXT NOT NULL,class_name TEXT NOT NULL,confirmed_at INTEGER NOT NULL DEFAULT 0,started_at INTEGER NOT NULL DEFAULT 0,last_activity INTEGER NOT NULL DEFAULT 0,finished_at INTEGER NOT NULL DEFAULT 0,extra_minutes INTEGER NOT NULL DEFAULT 0,note TEXT NOT NULL DEFAULT '',PRIMARY KEY(contest_id,user_id));
+CREATE TABLE IF NOT EXISTS p3_eo_audit(id INTEGER PRIMARY KEY AUTOINCREMENT,contest_id TEXT NOT NULL REFERENCES p3_contests(id),actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS p3_eo_audit_contest ON p3_eo_audit(contest_id,id);
+CREATE TABLE IF NOT EXISTS p3_eo_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,contest_id TEXT NOT NULL REFERENCES p3_contests(id),user_id TEXT NOT NULL,sender TEXT NOT NULL,message TEXT NOT NULL,created_at INTEGER NOT NULL,read_at INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS p3_eo_messages_user ON p3_eo_messages(user_id,id);
+CREATE TABLE IF NOT EXISTS p3_eo_grade_history(id INTEGER PRIMARY KEY AUTOINCREMENT,submission_id TEXT NOT NULL REFERENCES p3_contest_problem_submissions(id),actor_id TEXT NOT NULL,reason TEXT NOT NULL,result_json TEXT NOT NULL,created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS p3_eo_adjustments(submission_id TEXT PRIMARY KEY REFERENCES p3_contest_problem_submissions(id),score REAL NOT NULL,reason TEXT NOT NULL,actor_id TEXT NOT NULL,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS p3_eo_publications(id INTEGER PRIMARY KEY AUTOINCREMENT,contest_id TEXT NOT NULL REFERENCES p3_contests(id),actor_id TEXT NOT NULL,created_at INTEGER NOT NULL,rows_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS p3_eo_code_drafts(contest_id TEXT NOT NULL REFERENCES p3_contests(id),user_id TEXT NOT NULL,exercise_id TEXT NOT NULL,source_code TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(contest_id,user_id,exercise_id));
+CREATE INDEX IF NOT EXISTS p3_eo_candidates_user ON p3_eo_candidates(user_id,contest_id);
+CREATE TABLE IF NOT EXISTS p3_eo_migrations(version INTEGER PRIMARY KEY,applied_at INTEGER NOT NULL);
+INSERT OR IGNORE INTO p3_eo_migrations VALUES(1,CAST(strftime('%s','now') AS INTEGER)*1000);

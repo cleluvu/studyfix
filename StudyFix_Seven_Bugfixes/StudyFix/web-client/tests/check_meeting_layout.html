@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meeting layout regression</title></head>
+<body><div id="app"></div><div id="toast-region"></div>
+<!-- Serve web-client with a local HTTP server, then open /tests/check_meeting_layout.html. -->
+<script type="module">
+try {
+  const index=await (await fetch('/static/index.html')).text();
+  const links=[...new DOMParser().parseFromString(index,'text/html').querySelectorAll('link[rel="stylesheet"]')];
+  await Promise.all(links.map(link=>new Promise(resolve=>{const style=document.createElement('link');style.rel='stylesheet';style.href='/static'+link.getAttribute('href');style.onload=resolve;style.onerror=resolve;document.head.appendChild(style);} )));
+  const {state}=await import('/static/core/state.js');
+  const {render}=await import('/static/ui/render.js');
+  const {registerPage}=await import('/static/core/router.js');
+  const {renderRoom}=await import('/static/features/room/room.js');
+  registerPage('room',renderRoom);
+  await import('/static/core/events.js');
+  Object.assign(state,{booting:false,token:'fixture',identity:{userId:'t',role:'TEACHER',displayName:'Giảng viên'},peerId:'pt',page:'room',roomId:'room-fixture',room:{roomId:'room-fixture',roomCode:'JAVA-K23',version:2,code:'public class Main {\n    public static void main(String[] args) {\n        System.out.println("StudyFix");\n    }\n}',members:[{userId:'t',peerId:'pt',displayName:'Giảng viên',role:'TEACHER',isTeacherOwner:true,online:true},{userId:'s1',peerId:'p1',displayName:'Nguyễn Văn An',studentCode:'SV001',role:'STUDENT',online:true},{userId:'s2',peerId:'p2',displayName:'Trần Bình',studentCode:'SV002',role:'STUDENT',online:false}],history:[{version:1,editorName:'Nguyễn Văn An',createdAt:1000},{version:2,editorName:'Giảng viên',createdAt:2000}]},classroomRoomId:'room-fixture',classroom:{isOwner:true,phase:'LECTURE',round:1,branches:[],exercise:{id:'JAVA01',title:'Vòng lặp Java'},events:[{round:1,detail:'Bắt đầu giảng bài',createdAt:1000}]},assignments:[{id:'a1',exerciseId:'JAVA01',exerciseTitle:'Vòng lặp Java',status:'OPEN'},{id:'a2',exerciseId:'JAVA02',exerciseTitle:'Mảng số nguyên',status:'OPEN'}],chatItems:[{id:1,name:'Nguyễn Văn An',text:'Em đã hiểu vòng lặp',timestamp:1000},{id:2,name:'Trần Bình',text:'Em đang làm bài mảng',timestamp:2000}],meetingPanel:'',meetingSearch:{},meetingView:'master',roomTab:'code'});
+  render();
+  let checks=0;const check=(condition,message)=>{if(!condition)throw Error(message);checks++;};
+  const click=key=>{document.querySelector(`.meeting-footer [data-panel="${key}"]`).click();};
+  const search=(key,value)=>{const input=document.getElementById('meeting-search-'+key);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));};
+  check(!document.querySelector('.meeting-drawer'),'panels closed on entry');
+  check(!document.querySelector('.sidebar,.template-topbar'),'no external navigation');
+  for(const key of ['people','chat','assignments','workspace','history']){
+    click(key);
+    check(document.querySelectorAll('.meeting-drawer').length===1,'only one panel mounted');
+    check(document.querySelector('.meeting-drawer').dataset.panel===key,'selected panel visible');
+    check(document.querySelectorAll('.meeting-footer [aria-expanded="true"]').length===1,'only selected toggle expanded');
+    check(!!document.getElementById('meeting-search-'+key),'search exists for '+key);
+    const drawer=document.querySelector('.meeting-drawer').getBoundingClientRect();
+    check(drawer.width>0&&drawer.right<=innerWidth+1,'panel fits viewport');
+  }
+  click('people');search('people','nguyen');
+  check(document.querySelector('.member-list').textContent.includes('Nguyễn Văn An')&&!document.querySelector('.member-list').textContent.includes('Trần Bình'),'accent insensitive member search');
+  click('chat');search('chat','mang');
+  check(document.querySelector('#chat-list').textContent.includes('Trần Bình')&&!document.querySelector('#chat-list').textContent.includes('Nguyễn Văn An'),'chat search');
+  click('assignments');search('assignments','JAVA02');
+  check(document.querySelector('.meeting-panel-list').textContent.includes('Mảng số nguyên')&&!document.querySelector('.meeting-panel-list').textContent.includes('Vòng lặp Java'),'assignment search');
+  click('workspace');search('workspace','SV002');
+  check(document.querySelector('.meeting-classmates').textContent.includes('Trần Bình')&&!document.querySelector('.meeting-classmates').textContent.includes('Nguyễn Văn An'),'workspace member search');
+  click('history');search('history','nguyen');
+  check(document.querySelector('.meeting-history-content').textContent.includes('Nguyễn Văn An')&&!document.querySelector('.meeting-history-content').textContent.includes('Bắt đầu giảng bài'),'history search');
+  const leave=document.querySelector('[data-action="leave-room"]').getBoundingClientRect();
+  check(leave.top>=0&&leave.bottom<=innerHeight&&leave.right<=innerWidth,'leave always visible');
+  document.querySelector('.meeting-drawer-head [data-action="classroom-panel"]').click();
+  check(!document.querySelector('.meeting-drawer'),'close removes panel');
+  click('people');click('people');check(!document.querySelector('.meeting-drawer'),'repeat click closes panel');
+  const originalFetch=window.fetch;
+  window.fetch=async(url,options)=>url==='/api/assignments'?new Response(JSON.stringify({status:'OK',data:{assignments:state.assignments,exercises:[]}}),{headers:{'Content-Type':'application/json'}}):originalFetch(url,options);
+  click('assignments');document.querySelector('[data-action="room-assignments"]').click();
+  for(let attempt=0;attempt<100&&state.meetingView!=='assignments';attempt++)await new Promise(resolve=>setTimeout(resolve,20));
+  check(state.page==='room'&&!!document.querySelector('.meeting-assignment-workspace'),'assignment management stays in room');
+  check(!document.querySelector('.sidebar')&&!!document.querySelector('[data-action="leave-room"]'),'assignment management preserves meeting controls');
+  window.fetch=originalFetch;
+  state.meetingView='master';render();
+  state.identity={userId:'s1',role:'STUDENT',displayName:'Nguyễn Văn An'};state.classroom.isOwner=false;render();
+  check(!document.querySelector('.meeting-drawer'),'student entry closed');click('assignments');
+  check(!document.querySelector('[data-action="classroom-pick-exercise"]'),'student cannot pick teacher exercise');
+  const preview=new URLSearchParams(location.search).get('preview');
+  if(preview){state.identity={userId:'t',role:'TEACHER',displayName:'Giảng viên'};state.classroom.isOwner=true;state.meetingSearch={};state.meetingPanel=preview;render();}
+  const result=document.createElement('pre');result.id='result';result.hidden=true;result.textContent=`PASS ${checks} real browser checks at ${innerWidth}x${innerHeight}`;document.body.appendChild(result);
+} catch(error){document.body.innerHTML='<pre id="result">FAIL '+error.stack+'</pre>';}
+</script></body></html>

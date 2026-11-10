@@ -1,0 +1,5 @@
+export const builder={owner:"",token:"",record:null,payload:null,items:[],weeks:[],capabilities:null,step:1,busy:false,saving:false,dirty:false,error:"",conflict:false,lastSaved:0};
+export const steps=["Thông tin","Đề bài","Template","Test case","Chấm điểm","Kiểm định","Xuất bản"];
+export const defaults=()=>({schemaVersion:1,title:"",code:"",topic:"Java",javaStructure:"PROGRAM",difficulty:"Dễ",estimatedMinutes:60,weekIds:[],learningOutcome:"",summary:"",visibility:"PUBLIC",statement:{description:"",inputFormat:"",outputFormat:"",constraints:""},template:{mainClass:"Main",entryFile:"Main.java",source:"public class Main {\n    public static void main(String[] args) {\n        // TODO\n    }\n}\n"},testGroups:["Basic","Edge","Performance"],tests:[],grading:{checker:"EXACT",maxScore:100,javaVersion:17,timeLimitMs:3000,memoryLimitMb:256,outputLimitKb:2048,epsilon:0.000001,testDelivery:"stdin",partialScoring:true,showCompile:true,showRuntime:true,showPublic:true},reference:"",incorrectSample:""});
+
+export const b=builder;

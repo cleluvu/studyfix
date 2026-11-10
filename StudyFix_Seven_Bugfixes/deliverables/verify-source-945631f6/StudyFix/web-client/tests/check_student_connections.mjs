@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import {renderStudentConnections} from "../static/features/room/student-connections.js";
+const now=Date.now();
+const row={connectionId:"connection-1",userId:"user-1",studentCode:"SV001",displayName:"Sinh viên A",ip:"192.168.20.103",loginTime:now-10000,lastActivity:now,online:true};
+const room={studentConnections:[row,{...row,connectionId:"connection-2"},{...row,connectionId:"connection-3",online:false,reason:"HEARTBEAT_TIMEOUT"}]};
+assert.equal(renderStudentConnections(room,{role:"STUDENT"}),"","student cannot render IP data even if accidentally supplied");
+assert.equal(renderStudentConnections(room,null),"","signed-out user cannot render private data");
+assert.equal(renderStudentConnections({}, {role:"TEACHER"}),"","handles older server without private roster");
+const view=renderStudentConnections(room,{role:"TEACHER"});
+assert.ok(view.includes("192.168.20.103")&&view.includes("SV001")&&view.includes("Sinh viên A"));
+assert.ok(view.includes("1 sinh viên Online · 2 kết nối Online"),"multiple devices not counted as different students");
+assert.ok(view.includes("Đăng nhập")&&view.includes("Hoạt động cuối"));
+assert.ok(view.includes("Offline")&&view.includes("Hết hạn heartbeat"));
+assert.ok(!view.includes("sessionId")&&!view.includes("token"));
+const escaped=renderStudentConnections({studentConnections:[{...row,displayName:'<script>alert(1)</script>',ip:'<img onerror="bad">'}]},{role:"TEACHER"});
+assert.ok(!escaped.includes("<script>")&&!escaped.includes("<img"),"database values escaped as text");
+assert.ok(renderStudentConnections({studentConnections:[]},{role:"TEACHER"}).includes("Chưa có sinh viên"));
+console.log("Student connection UI: 10 checks PASS (render/privacy, not real-browser E2E).");

@@ -1,0 +1,65 @@
+{
+  "checks": [
+    {
+      "screen": 1,
+      "heading": "Tất cả đề thi",
+      "overflow": false,
+      "buttons": 45
+    },
+    {
+      "screen": 2,
+      "heading": "Tạo đề thi mới",
+      "overflow": false,
+      "buttons": 25
+    },
+    {
+      "screen": 3,
+      "heading": "Tạo đề thi mới",
+      "overflow": false,
+      "buttons": 31
+    },
+    {
+      "screen": 4,
+      "heading": "Tạo đề thi mới",
+      "overflow": false,
+      "buttons": 35
+    },
+    {
+      "screen": 5,
+      "heading": "Tạo đề thi mới",
+      "overflow": false,
+      "buttons": 24
+    },
+    {
+      "screen": 6,
+      "heading": "Tạo đề thi mới",
+      "overflow": false,
+      "buttons": 25
+    },
+    {
+      "screen": 7,
+      "heading": "Đề kiểm tra chương Mảng",
+      "overflow": false,
+      "buttons": 25
+    },
+    {
+      "screen": 8,
+      "heading": "Xem trước đề thi · Chế độ sinh viên",
+      "overflow": false,
+      "buttons": 31
+    },
+    {
+      "screen": 9,
+      "heading": "Import/Export đề thi",
+      "overflow": false,
+      "buttons": 19
+    }
+  ],
+  "liveSearch": true,
+  "questionSearch": true,
+  "scoreDistribution": true,
+  "finish": true,
+  "previewNavigation": true,
+  "mobileOverflow": false,
+  "runtimeErrors": []
+}

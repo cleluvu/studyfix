@@ -1,0 +1,5 @@
+# Test-only credentials. Loaded only with -Dstudyfix.test.accounts=...; never production defaults.
+teacher	Teacher123!	Giáo viên demo	TEACHER
+teacher2	Teacher234!	Giáo viên 2	TEACHER
+student1	Student123!	Học sinh 1	STUDENT
+student2	Student234!	Học sinh 2	STUDENT

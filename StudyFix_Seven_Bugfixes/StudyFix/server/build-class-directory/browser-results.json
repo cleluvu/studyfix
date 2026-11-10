@@ -1,0 +1,15 @@
+{
+  "passed": [
+    "five columns, ten rows per page, no dashboard widgets",
+    "pagination",
+    "case-insensitive code search and active lesson deletion disabled",
+    "create from web with generated server join code",
+    "accent-insensitive name search",
+    "edit metadata, close class, prevent entering closed room",
+    "reopen class",
+    "deletion confirmation cancel and confirm",
+    "enter corresponding realtime classroom",
+    "four responsive widths without page overflow",
+    "no uncaught browser errors"
+  ]
+}

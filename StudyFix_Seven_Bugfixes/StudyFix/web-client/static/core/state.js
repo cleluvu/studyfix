@@ -1,0 +1,118 @@
+// Tách từ app.js để dễ quản lý. Xem cách chia file trong README.md ở thư mục StudyFix, mục 6.3.
+import {isAdminPage} from "./roles.js";
+
+export const state = {
+  token: sessionStorage.getItem("studyfix.web.token") || "",
+  identity: null,
+  peerId: "",
+  page: "overview",
+  exerciseMode: "practice",
+  roomId: "",
+  room: null,
+  classroom: null,
+  classroomDrafts: {},
+  classroomAutoCheck: true,
+  rooms: [],
+  roomPage: 1,
+  roomSearch: "",
+  roomPageSize: 5,
+  manualRoomDelete: false,
+  roomsTotal: 0,
+  roomsTotalPages: 1,
+  customRoomCodes: false,
+  newRoomCode: "",
+  joinRoomCode: "",
+  pendingAdmission: null,
+  assignments: [],
+  catalog: [],
+  students: [],
+  progress: [],
+  contests: [],
+  bankView:"all",
+  catalogQuery: "",
+  catalogMode: "",
+  catalogTopic: "",
+  catalogDifficulty: "",
+  catalogSort: "bank",
+  chosenExercise: null,
+  activeDebugAssignment: null,
+  starterLoadNotice: null,
+  exerciseDetail: null,
+  detailKind: "",
+  assignmentScope: "ROOM",
+  assignmentTarget: "",
+  assignmentDeadline: "",
+  work: null,
+  workDetail: null,
+  workCode: "",
+  workSubmissions: [],
+  workResult: null,
+  workBusy: false,
+  contestFormOpen: false,
+  contestQuery: "",
+  contestSelected: [],
+  contestTitle: "",
+  contestStart: 0,
+  contestDuration: 60,
+  contestDistribution: "ALL",
+  contestRandomCount: 1,
+  selectedContest: null,
+  contestDetail: null,
+  contestWork: null,
+  contestCode: "",
+  contestSubmissions: [],
+  leaderboard: [],
+  sideTab: "chat",
+  roomTab: "code",
+  chatDraft: "",
+  chatItems: [],
+  roomEvents: [],
+  eventCursor: 0,
+  studentTaskStatus: "",
+  screenCursor: 0,
+  screenPeers: new Map(),
+  localStream: null,
+  remoteStream: null,
+  screenActive: false,
+  activeScreenPresenterId: "",
+  remoteScreenPresenter: "",
+  remoteScreenPresenterName: "",
+  screenRequestedPresenterPeerId: "",
+  screenPendingIce: new Map(),
+  screenLocalStarting: false,
+  history: [],
+  historyOpen: false,
+  notice: "",
+  busy: false,
+  filters: { query: "", mode: "", topic: "" },
+  activeSubmissionPoll: null,
+  progressParentAssignmentId: "",
+  codeDirty: false,
+  workCodeDirty: false,
+  refreshTimer: null,
+  booting: true,
+  roomLeaving: false,
+  meetingClosed: false,
+};
+
+// Chỉ khôi phục màn hình sau khi tải lại nếu server đã xác nhận danh tính và thành viên phòng.
+export function rememberView() {
+  if(!state.identity)return;
+  try {sessionStorage.setItem("studyfix.web.view",JSON.stringify({userId:state.identity.userId,page:state.page,exerciseMode:state.exerciseMode,bankView:state.bankView,roomId:state.room?.roomId||""}));}catch(_){}
+}
+export function restoreView() {
+  state.page=state.identity?.role==="TEACHER"?"admin":"overview";
+  try {
+    const saved=JSON.parse(sessionStorage.getItem("studyfix.web.view")||"null");
+    if(saved?.userId===state.identity?.userId&&state.identity.role==="STUDENT"&&["student-classes","student-ranking","student-progress","exam-organization"].includes(saved.page)){state.page=saved.page;return state.page;}
+    if(saved?.userId===state.identity?.userId&&saved.page==="exam-bank"&&state.identity.role==="TEACHER"){state.page="exam-bank";return state.page;}
+    if(saved?.userId===state.identity?.userId&&saved.page==="problem-builder"&&state.identity.role==="TEACHER"){state.page="exercises";state.exerciseMode="practice";state.bankView="all";return state.page;}
+    if(saved?.userId===state.identity?.userId&&isAdminPage(saved.page)&&state.identity.role==="TEACHER"){state.page=saved.page==="admin-attendance"?"admin-connections":saved.page;return state.page;}
+    if(saved?.userId===state.identity?.userId&&saved.page==="exercises"&&saved.exerciseMode!=="room") {
+      state.exerciseMode="practice";state.bankView=saved.bankView==="weeks"?"weeks":"all";state.page="exercises";return state.page;
+    }
+    if(saved?.userId===state.identity?.userId&&state.room&&saved.roomId===state.room.roomId
+      &&["overview","room","exercises","contests","exam-organization"].includes(saved.page)){state.page=saved.page;state.exerciseMode=saved.exerciseMode||"practice";}
+  }catch(_){}
+  return state.page;
+}

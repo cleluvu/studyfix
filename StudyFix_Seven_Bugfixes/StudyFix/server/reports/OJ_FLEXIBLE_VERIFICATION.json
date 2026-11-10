@@ -1,0 +1,22 @@
+{
+  "verifiedAt": "2026-11-08T23:10:56.959386+00:00",
+  "bankMetadataUnchanged": true,
+  "activeBank": 99,
+  "weeks": 12,
+  "integrity": "ok",
+  "foreignKeyViolations": 0,
+  "tests": {
+    "oj-flexible-final.log": {
+      "buildSuccessful": true,
+      "chromeImportPassed": true
+    },
+    "oj-flexible-verified.log": {
+      "buildSuccessful": true,
+      "chromeImportPassed": true
+    },
+    "frontend": {
+      "total": 20,
+      "failed": 0
+    }
+  }
+}

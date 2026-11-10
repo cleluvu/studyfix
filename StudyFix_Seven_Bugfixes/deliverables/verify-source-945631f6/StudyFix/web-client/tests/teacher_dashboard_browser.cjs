@@ -1,0 +1,67 @@
+// Optional real-browser test against the isolated Java/MySQL server, never production data.
+const {chromium}=require(require('path').join(process.env.STUDYFIX_BROWSER_TEST_MODULES,'playwright'));
+const fs=require('fs'),path=require('path');
+(async()=>{
+  const base=process.argv[2],output=path.resolve('build/teacher-admin-browser-qa');fs.mkdirSync(output,{recursive:true});
+  const browser=await chromium.launch({headless:true,channel:'chrome'});
+  try{
+    const teacherContext=await browser.newContext({viewport:{width:1440,height:1000}}),page=await teacherContext.newPage(),errors=[];
+    page.on('pageerror',e=>errors.push(e.message));await page.goto(base);
+    page.setDefaultTimeout(10000);
+    await page.locator('#username').fill(process.env.STUDYFIX_BOOTSTRAP_TEACHER);await page.locator('#password').fill(process.env.STUDYFIX_BOOTSTRAP_PASSWORD);await page.locator('#login-form [type="submit"]').click();
+    await page.getByRole('heading',{name:'Tổng quan giảng viên',exact:true}).waitFor();await page.getByText('Đang cập nhật qua WebSocket',{exact:false}).waitFor();
+    await page.screenshot({path:path.join(output,'teacher-overview.png'),fullPage:true});
+    await page.locator('[data-page="admin-students"]').first().click();await page.getByRole('heading',{name:'Quản lý sinh viên',exact:true}).waitFor();
+    await page.getByText(process.env.STUDYFIX_BROWSER_STUDENT_CODE,{exact:true}).first().waitFor();
+    await page.screenshot({path:path.join(output,'teacher-students.png'),fullPage:true});
+    await page.locator('[data-page="admin-connections"]').first().click();await page.getByRole('heading',{name:'Theo dõi lớp học',exact:true}).waitFor();
+    await page.getByText('127.0.0.1',{exact:true}).first().waitFor();await page.screenshot({path:path.join(output,'teacher-connections.png'),fullPage:true});
+    if(await page.locator('.nav [data-page="admin-attendance"]').count())throw Error("Duplicate attendance sidebar entry remains");
+    for(const label of ["Lượt","Vào lớp","IP do server ghi nhận","Đăng nhập lúc","Mã kết nối"])await page.getByRole("columnheader",{name:label,exact:true}).waitFor();
+    await page.screenshot({path:path.join(output,'teacher-class-tracking.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().right<1);await page.screenshot({path:path.join(output,'teacher-mobile.png'),fullPage:true,animations:'disabled'});
+    if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1))throw Error('Mobile page overflows viewport');
+    await page.locator('.mobile-menu').click();await page.waitForFunction(()=>document.querySelector('.sidebar').getBoundingClientRect().left>=-1);await page.waitForTimeout(2300);
+    if(!await page.locator('.sidebar').evaluate(el=>el.classList.contains('open')))throw Error('WebSocket render closes mobile navigation');
+    await page.screenshot({path:path.join(output,'teacher-mobile-menu.png'),fullPage:true,animations:'disabled'});
+    const studentContext=await browser.newContext({viewport:{width:1440,height:1000}}),student=await studentContext.newPage();student.on('pageerror',e=>errors.push(e.message));
+    await student.goto(base);await student.locator('#username').fill(process.env.STUDYFIX_BROWSER_STUDENT_CODE);await student.locator('#password').fill(process.env.STUDYFIX_BROWSER_STUDENT_PASSWORD);await student.locator('#login-form [type="submit"]').click();
+    await student.locator('[data-page="exercises"]').first().waitFor();
+    if(await student.locator('[data-page^="admin"]').count())throw Error('Student sees Admin navigation');
+    const status=await student.evaluate(async()=>{const r=await fetch('/api/admin',{headers:{Authorization:'Bearer '+sessionStorage.getItem('studyfix.web.token')}});return r.status;});
+    if(status!==403)throw Error('Student Admin API not rejected');
+    await student.screenshot({path:path.join(output,'student-dashboard.png'),fullPage:true});
+    // A new open class is discoverable before enrollment; approval is exercised through actual UI + WebSocket.
+    const admissionCode='Browser-join-'+Date.now();
+    const admissionId=await page.evaluate(async roomCode=>{const response=await fetch('/api/admin',{method:'POST',headers:{Authorization:'Bearer '+sessionStorage.getItem('studyfix.web.token'),'Content-Type':'application/json'},body:JSON.stringify({action:'CREATE_CLASS',roomCode})});const payload=await response.json();if(!response.ok)throw Error(payload.message);return payload.data.classId;},admissionCode);
+    await page.setViewportSize({width:1440,height:1000});
+    await page.locator('[data-page="admin-classes"]').first().click();
+    await student.locator('#room-search').fill(admissionCode);
+    await student.locator('#room-search-form [type="submit"]').click();
+    await student.locator(`[data-action="join-room"][data-room-id="${admissionCode}"]`).click();
+    await student.getByRole('button',{name:'Đang chờ duyệt',exact:true}).waitFor();
+    const approve=page.locator(`.workspace [data-action="admin-approve-join"][data-class-id="${admissionId}"]`);
+    await approve.waitFor();
+    await page.locator(`.workspace [data-action="admin-reject-join"][data-class-id="${admissionId}"]`).click();
+    await student.getByRole('button',{name:'Xin vào lại',exact:true}).waitFor();
+    await student.getByRole('button',{name:'Xin vào lại',exact:true}).click();
+    await approve.waitFor();await approve.click();
+    await student.locator('.meeting-footer').waitFor();
+    await student.waitForFunction(code=>document.body.textContent.includes(code),admissionCode);
+    await student.screenshot({path:path.join(output,'student-admitted-meeting.png'),fullPage:true});
+    await student.locator('[data-action="leave-meeting"]').click();
+    await student.locator('#room-search').waitFor();
+    const requestAgain=student.locator(`[data-action="join-room"][data-room-id="${admissionCode}"]`);
+    await requestAgain.waitFor();
+    if(await requestAgain.textContent()!=='Xin vào lớp')throw Error('Leaving meeting reused an old approval');
+    await requestAgain.click();
+    await student.getByRole('button',{name:'Đang chờ duyệt',exact:true}).waitFor();
+    if(await student.locator('.meeting-footer').count())throw Error('Student re-entered before Teacher approved');
+    await approve.waitFor();await approve.click();
+    await student.locator('.meeting-footer').waitFor();
+    console.log('Real browser admission: discover, request, reject, retry, approve, auto-enter, leave meeting and request reentry PASS.');
+    if(errors.length)throw Error('Browser errors: '+errors.join('; '));
+    console.log('Teacher/Student real browser: login, role navigation, live WebSocket, LAN table, attendance, mobile and Admin API privacy PASS.');
+    await studentContext.close();await teacherContext.close();
+  }finally{await browser.close();}
+})().catch(e=>{console.error(e.message);process.exit(1);});

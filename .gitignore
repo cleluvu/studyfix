@@ -29,3 +29,19 @@ Thumbs.db
 *.p12
 *.pfx
 *.jks
+
+# Sensitive data
+cookies.txt
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+
+# Build output
+node_modules/
+target/
+build/
+dist/
+*.class

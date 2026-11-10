@@ -1,0 +1,10 @@
+{
+  "passed": [
+    "student admission, teacher approval, student read-only Master",
+    "exercise picker, starter selection, fork and independent branch save",
+    "freeze/resume locks and unlocks student editor; preview and merge preserve exact branch and return to lecture",
+    "resume editing, two-browser chat, student desktop/mobile with no overlapping cards",
+    "END and NEW_SESSION retain phase behavior",
+    "assignment navigation retains room and student exit leaves membership"
+  ]
+}

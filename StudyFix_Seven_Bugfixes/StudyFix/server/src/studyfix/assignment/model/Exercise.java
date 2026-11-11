@@ -26,6 +26,17 @@ public record Exercise(String id, String title, String topic, String difficulty,
 
     public record TestCase(String input, String expected, int weight, boolean hidden) {}
 
+    /** A specific explanation shared by the source picker and server-side validation. */
+    public String debugPreparationIssue() {
+        if("METHOD".equals(javaStructure))return "Chưa hỗ trợ bài Method ("+entryFile+")";
+        if("CLASS".equals(javaStructure))return "Chưa hỗ trợ bài Class ("+entryFile+")";
+        if(!"PROGRAM".equals(javaStructure)||!"Main.java".equals(entryFile))return "Chỉ hỗ trợ bài Program với Main.java";
+        if(referenceSolution==null||referenceSolution.isBlank())return "Thiếu code chuẩn";
+        if(tests.isEmpty())return "Chưa có testcase";
+        if(referenceSolution.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>32000)return "Code chuẩn vượt giới hạn 32000 byte";
+        return "";
+    }
+
     /** Dữ liệu được phép công khai, không chứa lời giải tham khảo hay đáp án test ẩn. */
     public Map<String, Object> publicView() {
         Map<String, Object> view = new LinkedHashMap<>();

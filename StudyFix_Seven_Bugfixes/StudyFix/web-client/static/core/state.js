@@ -106,10 +106,11 @@ export function restoreView() {
     const saved=JSON.parse(sessionStorage.getItem("studyfix.web.view")||"null");
     if(saved?.userId===state.identity?.userId&&state.identity.role==="STUDENT"&&["student-classes","student-ranking","student-progress","exam-organization"].includes(saved.page)){state.page=saved.page;return state.page;}
     if(saved?.userId===state.identity?.userId&&saved.page==="exam-bank"&&state.identity.role==="TEACHER"){state.page="exam-bank";return state.page;}
+    if(saved?.userId===state.identity?.userId&&saved.page==="exam-organization"&&state.identity.role==="TEACHER"){state.page="exam-organization";return state.page;}
     if(saved?.userId===state.identity?.userId&&saved.page==="problem-builder"&&state.identity.role==="TEACHER"){state.page="exercises";state.exerciseMode="practice";state.bankView="all";return state.page;}
     if(saved?.userId===state.identity?.userId&&isAdminPage(saved.page)&&state.identity.role==="TEACHER"){state.page=saved.page==="admin-attendance"?"admin-connections":saved.page;return state.page;}
     if(saved?.userId===state.identity?.userId&&saved.page==="exercises"&&saved.exerciseMode!=="room") {
-      state.exerciseMode="practice";state.bankView=saved.bankView==="weeks"?"weeks":"all";state.page="exercises";return state.page;
+      state.exerciseMode="practice";state.bankView=(state.identity.role==="TEACHER"?["all","weeks","private","create"]:["all","weeks"]).includes(saved.bankView)?saved.bankView:"all";state.page="exercises";return state.page;
     }
     if(saved?.userId===state.identity?.userId&&state.room&&saved.roomId===state.room.roomId
       &&["overview","room","exercises","contests","exam-organization"].includes(saved.page)){state.page=saved.page;state.exerciseMode=saved.exerciseMode||"practice";}

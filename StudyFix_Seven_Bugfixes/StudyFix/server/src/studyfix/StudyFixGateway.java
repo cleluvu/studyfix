@@ -30,6 +30,11 @@ public final class StudyFixGateway {
         });
     }
     /** Minimal active Teacher directory for explicit problem review assignment. */
+    public java.util.Map<String,Object> weekDirectory(Identity who)throws java.sql.SQLException {
+        if(who.role()==Identity.Role.TEACHER)return examDirectory(who);
+        ManagementDatabase db=server.store().management();if(db==null)throw new IllegalStateException("Cần database quản trị SQLite để giao bài theo Week.");
+        return db.transaction(c->{java.util.List<java.util.Map<String,Object>> classes=new java.util.ArrayList<>();try(var p=c.prepareStatement("SELECT k.class_id,k.room_code,k.name,k.owner_id,u.display_name FROM class_members m JOIN classes k ON k.class_id=m.class_id JOIN users u ON u.user_id=k.owner_id WHERE m.user_id=? AND m.membership_status='ENROLLED' AND k.active=1 ORDER BY k.name")){p.setString(1,who.userId());try(var r=p.executeQuery()){while(r.next())classes.add(studyfix.assignment.protocol.AssignmentJson.mapOf("id",r.getString(1),"code",r.getString(2),"name",r.getString(3),"ownerId",r.getString(4),"teacherName",r.getString(5)));}}return studyfix.assignment.protocol.AssignmentJson.mapOf("classes",classes);});
+    }
     public java.util.List<java.util.Map<String,Object>> problemReviewers(Identity who)throws java.sql.SQLException {
         if(who.role()!=Identity.Role.TEACHER)throw new SecurityException("Teacher only");
         ManagementDatabase db=server.store().management();

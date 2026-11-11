@@ -6,7 +6,7 @@ import {toast} from "../../ui/toast.js";
 export const weekBank={owner:"",token:"",weeks:[],id:"",tab:"list"};
 function scope(){if(weekBank.owner!==state.identity?.userId||weekBank.token!==state.token)Object.assign(weekBank,{owner:state.identity?.userId||"",token:state.token,weeks:[],id:"",tab:"list"});}
 export const selectedWeek=()=>weekBank.weeks.find(w=>w.id===weekBank.id);
-export async function loadWeeks(){scope();const token=state.token,owner=state.identity?.userId;const result=await assignment("PRACTICE_WEEK_LIST",{});if(token!==state.token||owner!==state.identity?.userId)return;weekBank.weeks=result.weeks||[];if(!selectedWeek())weekBank.id=weekBank.weeks[0]?.id||"";}
+export async function loadWeeks(){scope();const token=state.token,owner=state.identity?.userId;const result=await assignment("PRACTICE_WEEK_LIST",{});if(token!==state.token||owner!==state.identity?.userId)return;weekBank.weeks=result.weeks||[];if(state.identity?.role==="TEACHER"){try{const extra=await assignment("WA_TIMELINE",{});if(token!==state.token)return;for(const w of extra.weeks||[])if(w.archived&&!weekBank.weeks.some(v=>v.id===w.id))weekBank.weeks.push(w);}catch{}}if(!selectedWeek())weekBank.id=weekBank.weeks[0]?.id||"";}
 const isMine=()=>state.identity?.role==="TEACHER"&&selectedWeek()?.isMine;
 export function openWeekForm(week,onSaved){
  if(state.identity?.role!=="TEACHER"||(week&&!week.isMine))throw new Error("Bạn không có quyền sửa Week này.");

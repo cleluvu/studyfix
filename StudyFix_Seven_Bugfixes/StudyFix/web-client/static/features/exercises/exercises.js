@@ -83,9 +83,10 @@ export function renderPersonalWorkspace() {
 }
 
 export function renderSubmissionResult(s) {
+  const structure=(s.structureResults||[]).length?`<section class="pb-panel"><h3>Kết quả cấu trúc OOP</h3>${s.structureResults.map(r=>`<p>${r.passed?"✓":"✗"} <strong>${esc(r.ruleId)}</strong>${r.maxPoints!=null?` · ${r.points}/${r.maxPoints} điểm`:""} · ${esc(r.message)}${r.line?` · dòng ${Number(r.line)}`:""}</p>`).join("")}</section>`:"";
   if(s.scoreHidden&&!s.testsHidden)s={...s,feedback:(s.feedback||"")+" Điểm được ẩn đến khi kỳ thi kết thúc."};
   if(s.testsHidden)return `<div class="submission-status"><strong>${humanVerdict(s.verdict||s.status)}</strong>${pill(humanVerdict(s.verdict||s.status),statusClass(s.verdict||s.status))}</div><p class="subtle-text">${esc(s.feedback||"Chi tiết test được ẩn theo chính sách đề thi.")}</p><p class="subtle-text">${s.scoreHidden?"Điểm được ẩn đến khi kỳ thi kết thúc.":`${s.score??0}/${s.maxScore??100} điểm`}</p>`;
-  return `<div class="submission-status"><strong>${humanVerdict(s.verdict || s.status)}</strong>${pill(humanVerdict(s.verdict || s.status), statusClass(s.verdict || s.status))}<span class="subtle-text">${submissionTests(s)} đạt</span><div class="result-bar"><span style="width:${s.totalTests ? Math.max(0, Math.min(100, ((s.passedTests || 0) / s.totalTests) * 100)) : 0}%"></span></div></div><p class="subtle-text">${esc(s.feedback || "")}</p>${s.testResults?.length ? `<div>${s.testResults.map((t, i) => `<div class="test-row"><strong>Test ${t.index || i + 1} ${pill(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"—"), statusClass(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"")))}</strong><div>Input<pre>${esc(t.input || "Ẩn")}</pre></div><div>Kết quả công khai<pre>${esc(t.actualOutput || t.output || t.message || "Chi tiết bị giới hạn an toàn")}</pre></div></div>`).join("")}</div>` : ""}`;
+  return `${structure}<div class="submission-status"><strong>${humanVerdict(s.verdict || s.status)}</strong>${pill(humanVerdict(s.verdict || s.status), statusClass(s.verdict || s.status))}${s.totalTests!=null?`<span class="subtle-text">${submissionTests(s)} đạt</span><div class="result-bar"><span style="width:${s.totalTests ? Math.max(0, Math.min(100, ((s.passedTests || 0) / s.totalTests) * 100)) : 0}%"></span></div>`:""}</div><p class="subtle-text">${esc(s.feedback || "")}</p>${s.testResults?.length ? `<div>${s.testResults.map((t, i) => `<div class="test-row"><strong>Test ${t.index || t.test || i + 1} ${pill(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"—"), statusClass(t.verdict || t.status || (t.passed===true?"ACCEPTED":t.passed===false?"WRONG_ANSWER":"")))}</strong><div>Input<pre>${esc(t.input || "Ẩn")}</pre></div><div>Kết quả công khai<pre>${esc(t.actualOutput || t.output || t.message || "Chi tiết bị giới hạn an toàn")}</pre></div></div>`).join("")}</div>` : ""}`;
 }
 
 export function renderSubmissions(rows) {
@@ -101,7 +102,7 @@ export function renderSubmissions(rows) {
 }
 
 function submissionScore(s){return s.scoreHidden?"Điểm đang ẩn":`${s.score??0}/${s.maxScore??100} điểm`;}
-function submissionTests(s){return s.testsHidden?"Chi tiết test đang ẩn":`${s.passedTests??0}/${s.totalTests??0} test`;}
+function submissionTests(s){return s.testsHidden?"Chi tiết test đang ẩn":s.totalTests==null?"Test theo quy chế":`${s.passedTests??0}/${s.totalTests??0} test`;}
 
 export async function openAssignment(assignmentId) {
   const item = state.assignments.find((a) => a.id === assignmentId);

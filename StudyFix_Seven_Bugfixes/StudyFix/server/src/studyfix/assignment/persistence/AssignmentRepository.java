@@ -39,6 +39,7 @@ public final class AssignmentRepository {
         try (Statement s = c.createStatement()) {
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_schema_meta(version INTEGER NOT NULL)");
             s.executeUpdate("INSERT INTO p3_schema_meta(version) SELECT 1 WHERE NOT EXISTS(SELECT 1 FROM p3_schema_meta)");
+            StructureResultStore.ensure(c);
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_exercises(id TEXT PRIMARY KEY,title TEXT NOT NULL,topic TEXT NOT NULL,difficulty TEXT NOT NULL,statement TEXT NOT NULL,input_format TEXT NOT NULL,output_format TEXT NOT NULL,constraints_text TEXT NOT NULL,template TEXT NOT NULL,hints TEXT NOT NULL,reference_solution TEXT NOT NULL,catalog_version INTEGER NOT NULL,created_at INTEGER NOT NULL,mode TEXT NOT NULL DEFAULT 'BUILD_FROM_SCRATCH',starter_code TEXT NOT NULL DEFAULT '')");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_test_cases(id INTEGER PRIMARY KEY AUTOINCREMENT,exercise_id TEXT NOT NULL REFERENCES p3_exercises(id) ON DELETE CASCADE,ordinal_no INTEGER NOT NULL,input_text TEXT NOT NULL,expected_output TEXT NOT NULL,weight INTEGER NOT NULL,hidden INTEGER NOT NULL,UNIQUE(exercise_id,ordinal_no))");
             s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_assignments(id TEXT PRIMARY KEY,exercise_id TEXT NOT NULL REFERENCES p3_exercises(id),room_id TEXT NOT NULL,created_by_user_id TEXT NOT NULL,scope TEXT NOT NULL CHECK(scope IN ('ROOM','INDIVIDUAL')),target_user_id TEXT,target_username TEXT,created_at INTEGER NOT NULL,deadline_at INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'OPEN',mode TEXT NOT NULL DEFAULT 'BUILD_FROM_SCRATCH')");
@@ -173,7 +174,7 @@ public final class AssignmentRepository {
     }
 
     public List<Map<String, Object>> listExercises(String query, String topic, String mode) throws SQLException {
-        String sql = "SELECT id,title,topic,difficulty,statement,mode,java_structure,entry_file FROM p3_exercises WHERE id NOT IN (SELECT exercise_id FROM p3_question_bank WHERE deleted=1 OR is_current=0 OR publication<>'PUBLISHED') AND (?='' OR lower(title||' '||statement||' '||id) LIKE ?) AND (?='' OR topic=?) AND (?='' OR mode=?) ORDER BY mode,topic,id";
+        String sql = "SELECT id,title,topic,difficulty,statement,mode,java_structure,entry_file FROM p3_exercises WHERE id NOT IN (SELECT exercise_id FROM p3_question_bank WHERE deleted=1 OR is_current=0 OR publication<>'PUBLISHED' OR bank_scope='EXAM_PRIVATE') AND (?='' OR lower(title||' '||statement||' '||id) LIKE ?) AND (?='' OR topic=?) AND (?='' OR mode=?) ORDER BY mode,topic,id";
         try (Connection c = open(); PreparedStatement p = c.prepareStatement(sql)) {
             String q = query == null ? "" : query.toLowerCase(Locale.ROOT); String t = topic == null ? "" : topic;
             String m = mode == null ? "" : mode.trim().toUpperCase(Locale.ROOT);
@@ -312,10 +313,11 @@ public final class AssignmentRepository {
                 try(PreparedStatement p=c.prepareStatement("UPDATE p3_submissions SET status='DONE',score=?,max_score=?,verdict=?,passed_tests=?,total_tests=?,feedback=?,duration_ms=? WHERE id=?")){p.setDouble(1,g.score());p.setDouble(2,g.maxScore());p.setString(3,g.verdict());p.setInt(4,g.passed());p.setInt(5,g.total());p.setString(6,g.feedback());p.setLong(7,g.durationMillis());p.setString(8,id);p.executeUpdate();}
                 try(PreparedStatement p=c.prepareStatement("DELETE FROM p3_test_results WHERE submission_id=?")){p.setString(1,id);p.executeUpdate();}
                 try(PreparedStatement p=c.prepareStatement("INSERT INTO p3_test_results(submission_id,ordinal_no,hidden,passed,message,duration_ms) VALUES(?,?,?,?,?,?)")){int n=0;for(Map<String,Object>t:g.publicTests()){p.setString(1,id);p.setInt(2,++n);p.setInt(3,Boolean.TRUE.equals(t.get("hidden"))?1:0);p.setInt(4,Boolean.TRUE.equals(t.get("passed"))?1:0);p.setString(5,String.valueOf(t.getOrDefault("message","")));p.setLong(6,((Number)t.getOrDefault("durationMs",0)).longValue());p.addBatch();}p.executeBatch();}
-                c.commit();
+                StructureResultStore.write(c,id,g.structureResults());c.commit();
             }catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;throw new SQLException(e);}
         }
     }
+    public List<Map<String,Object>> structureResults(String id)throws SQLException{try(Connection c=open()){return StructureResultStore.read(c,id);}}
     public List<Map<String,Object>> publicTestResults(String submissionId)throws SQLException{try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT ordinal_no,hidden,passed,message,duration_ms FROM p3_test_results WHERE submission_id=? ORDER BY ordinal_no")){p.setString(1,submissionId);try(ResultSet r=p.executeQuery()){List<Map<String,Object>>out=new ArrayList<>();while(r.next()){boolean hidden=r.getInt(2)!=0;Map<String,Object>m=new LinkedHashMap<>();m.put("test",r.getInt(1));m.put("passed",r.getInt(3)!=0);m.put("message",hidden?"Hidden test: "+(r.getInt(3)!=0?"đạt":"không đạt"):r.getString(4));m.put("durationMs",r.getLong(5));m.put("hidden",hidden);out.add(m);}return out;}}}
     public TeacherTrialRecord teacherTrialByIdempotency(String key) throws SQLException {
         try (Connection c=open(); PreparedStatement p=c.prepareStatement("SELECT * FROM p3_teacher_trials WHERE idempotency_key=?")) {
@@ -358,7 +360,7 @@ public final class AssignmentRepository {
                 try(PreparedStatement p=c.prepareStatement("INSERT INTO p3_teacher_trial_test_results(trial_id,ordinal_no,hidden,passed,message,duration_ms) VALUES(?,?,?,?,?,?)")){
                     int n=0;for(Map<String,Object> t:g.publicTests()){p.setString(1,id);p.setInt(2,++n);p.setInt(3,Boolean.TRUE.equals(t.get("hidden"))?1:0);p.setInt(4,Boolean.TRUE.equals(t.get("passed"))?1:0);p.setString(5,String.valueOf(t.getOrDefault("message","")));p.setLong(6,((Number)t.getOrDefault("durationMs",0)).longValue());p.addBatch();}p.executeBatch();
                 }
-                c.commit();
+                StructureResultStore.write(c,id,g.structureResults());c.commit();
             }catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;throw new SQLException(e);}
         }
     }
@@ -446,8 +448,8 @@ public final class AssignmentRepository {
     }
     public String createContestFromExam(String id,String room,String title,String owner,long now,long start,long end,Map<String,Object> exam,String distribution,int count)throws SQLException{
         List<ContestProblemSeed> problems=new ArrayList<>();
-        for(Object value:AssignmentJson.list(exam.get("items"))){Map<String,Object> item=AssignmentJson.map(value);Exercise e=getExercise(AssignmentJson.text(item,"exerciseId",""));if(e==null)throw new SQLException("Missing frozen question");problems.add(new ContestProblemSeed(e.id(),e.id(),null,e.mode().name(),((Number)item.get("points")).doubleValue(),e.title(),e.statement(),1));}
-        return createContestRows(id,room,title,owner,now,start,end,"INDIVIDUAL","AC_COUNT_SCORE_TIME_V2",problems,distribution,count,AssignmentJson.text(exam,"id",""),AssignmentJson.map(exam.get("grading")));
+        for(Object value:AssignmentJson.list(exam.get("items"))){Map<String,Object> item=AssignmentJson.map(value);Exercise e=getExercise(AssignmentJson.text(item,"exerciseId",""));if(e==null)throw new SQLException("Missing frozen question");problems.add(new ContestProblemSeed(e.id(),e.id(),null,e.mode().name(),ExamScoring.questionMax(exam,item,"RANDOM".equals(distribution)?count:AssignmentJson.list(exam.get("items")).size()),e.title(),e.statement(),1));}
+        return createContestRows(id,room,title,owner,now,start,end,"INDIVIDUAL",ExamScoring.equalTen(exam)?ExamScoring.RULE:"AC_COUNT_SCORE_TIME_V2",problems,distribution,count,AssignmentJson.text(exam,"id",""),AssignmentJson.map(exam.get("grading")));
     }
     private String createContestRows(String id,String room,String title,String owner,long now,long start,long end,String contestType,String scoringRule,List<ContestProblemSeed> problems,String distribution,int count,String examVersion,Map<String,Object> grading)throws SQLException{
         if (problems.isEmpty()) throw new SQLException("Kỳ thi phải có ít nhất một bài.");
@@ -561,7 +563,7 @@ public final class AssignmentRepository {
                 try(PreparedStatement p=c.prepareStatement("INSERT INTO p3_contest_test_results(submission_id,ordinal_no,hidden,passed,message,duration_ms) VALUES(?,?,?,?,?,?)")){
                     int n=0;for(Map<String,Object>t:g.publicTests()){p.setString(1,id);p.setInt(2,++n);p.setInt(3,Boolean.TRUE.equals(t.get("hidden"))?1:0);p.setInt(4,Boolean.TRUE.equals(t.get("passed"))?1:0);p.setString(5,String.valueOf(t.getOrDefault("message","")));p.setLong(6,((Number)t.getOrDefault("durationMs",0)).longValue());p.addBatch();}p.executeBatch();
                 }
-                c.commit();
+                StructureResultStore.write(c,id,g.structureResults());c.commit();
             }catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;throw new SQLException(e);}
         }
     }
@@ -598,7 +600,7 @@ public final class AssignmentRepository {
         }}}
         List<Map<String,Object>> out=new ArrayList<>();
         for(String user:userRows.keySet()){
-            double totalScore=bestScores.getOrDefault(user,Map.of()).values().stream().mapToDouble(Double::doubleValue).sum();
+            double totalScore=bestScores.getOrDefault(user,Map.of()).values().stream().mapToDouble(Double::doubleValue).sum();if(ExamScoring.RULE.equals(rule))totalScore=ExamScoring.result(totalScore);
             Map<String,Long> acTimes=earliestAcs.getOrDefault(user,Map.of());
             long lastAc=acTimes.values().stream().mapToLong(Long::longValue).max().orElse(Long.MAX_VALUE);
             Map<String,Object> row=new LinkedHashMap<>(userRows.get(user));row.put("score",totalScore);row.put("acceptedCount",acTimes.size());row.put("tieBreakAt",lastAc);out.add(row);

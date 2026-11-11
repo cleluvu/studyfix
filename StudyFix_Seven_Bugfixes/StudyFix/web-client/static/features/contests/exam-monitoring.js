@@ -1,3 +1,4 @@
+import {IdeFocusMonitor} from "./ide-focus.js";
 import {organization as organizationView} from "../exam-organization/state.js";
 const contextRoom=()=>state.page==="exam-organization"?state.contestDetail?.contest?.roomId||state.room?.roomId||"":state.room?.roomId||"";
 import {setExamUi} from "../../ui/exam-ui.js";
@@ -15,10 +16,18 @@ let queue=[],sending=false,lastSync=0,away=false,blurTimer=null,lastPaste=0,offs
 export const classroomExamId=()=>state.room&&state.classroom?`classroom:${state.room.roomId}:${state.classroom.round}`:"";
 const selected=()=>state.page==="room"?classroomExamId():state.contestWork?.contestId||state.contestDetail?.contest?.id||state.selectedContest?.id||"";
 const storageKey=()=>`studyfix.exam.outbox.${state.identity?.userId}`;
+const ide=new IdeFocusMonitor({active:()=>active(),focused:()=>!document.hidden&&document.hasFocus(),onSample:sample=>{
+  if(!active())return;
+  if(!onExamPage()){leave("navigation");return;}
+  if(sample.unapproved)leave("blur");
+  if(sample.focused){back();if(exam.notice.startsWith("Đang dùng ")){exam.notice="Đã quay lại trang thi.";paintStatus();}return;}
+  if(sample.allowed){if(away){away=false;report("TAB_RETURN","focus");}exam.notice=sample.kind==="VSCODE"?"Đang dùng VS Code — được phép, không tính cảnh báo rời trang.":"Đang dùng NetBeans — được phép, không tính cảnh báo rời trang.";paintStatus();}
+  else leave(document.hidden?"hidden":"blur");
+},onFailure:()=>{if(active()){exam.notice="Mất kết nối công cụ IDE. Cảnh báo rời trang đang hoạt động như bình thường.";if(document.hidden||!document.hasFocus())leave(document.hidden?"hidden":"blur");paintStatus();}}});
 function persist(){try{sessionStorage.setItem(storageKey(),JSON.stringify(queue));}catch(_){}}
 function scope(){
   if(exam.owner===state.identity?.userId&&exam.token===state.token)return;
-  ++syncGeneration;
+  ++syncGeneration;ide.reset();
   Object.assign(exam,{owner:state.identity?.userId||"",token:state.token||"",roomId:"",contestId:"",mode:null,monitor:null,notice:"",connected:true,query:"",filter:"",tabDraft:null,pasteDraft:null});
   queue=[];away=false;lastPaste=0;lastSync=0;clearTimeout(blurTimer);
   try{queue=JSON.parse(sessionStorage.getItem(storageKey())||"[]").filter(e=>e&&typeof e.eventId==="string").slice(-100);}catch(_){}
@@ -28,7 +37,7 @@ const editorMatches=target=>target?.id===(isBranch()?"classroom-branch":"contest
 const onExamPage=()=>isBranch()?state.page==="room"&&classroomExamId()===exam.contestId:state.page==="exam-organization"?organizationView.view==="detail"&&organizationView.contestId===exam.contestId:state.page==="contests"&&selected()===exam.contestId;
 const active=()=>state.identity?.role==="STUDENT"&&contextRoom()===exam.roomId&&exam.mode?.enabled&&exam.mode?.live&&(!isBranch()||!state.classroom||state.classroom.phase==="BRANCHING")&&Date.now()+offset<Number(exam.mode.endAt||0)&&exam.owner===state.identity.userId&&exam.token===state.token;
 function paintStatus(){const node=document.getElementById("exam-student-status");if(node){node.innerHTML=studentStatusContent();node.hidden=!active();}}
-function studentStatusContent(){return `<strong>Đang trong chế độ kiểm tra — Copy/Paste bị giới hạn.</strong><span>${esc(exam.notice||"Hoạt động rời trang/mất focus được ghi nhận để giáo viên xem xét.")}</span>${!exam.connected?'<small>Mất kết nối: vẫn giữ giới hạn dán, sự kiện chờ đồng bộ.</small>':""}`;}
+function studentStatusContent(){return `<strong>Đang trong chế độ kiểm tra — Copy/Paste bị giới hạn.</strong><span>${esc(exam.notice||"Hoạt động rời trang/mất focus được ghi nhận để giáo viên xem xét.")}</span>${!exam.connected?'<small>Mất kết nối: vẫn giữ giới hạn dán, sự kiện chờ đồng bộ.</small>':""}<small>${ide.connected?"Hỗ trợ VS Code / NetBeans đã kết nối. Trình duyệt khác vẫn được ghi nhận.":"Muốn dùng VS Code / NetBeans: chạy công cụ Windows rồi kết nối hỗ trợ IDE."}</small><div>${btn(ide.connected?"Kết nối lại IDE":"Kết nối hỗ trợ IDE","exam-connect-ide","btn-soft btn-sm")}${btn("Hướng dẫn IDE","exam-ide-help","btn-soft btn-sm")}</div>`;}
 export function renderStudentExamStatus(){return `<div id="exam-student-status" class="exam-student-status" role="status" aria-live="polite" ${active()?"":"hidden"}>${active()?studentStatusContent():""}</div>`;}
 export async function loadExam(contestId=selected()){
   scope();if(!contestId||!state.token||!contextRoom())return;
@@ -44,7 +53,7 @@ export async function loadExam(contestId=selected()){
     }else{
       // An old login/generation cannot replay signals into a new exam session.
       queue=queue.filter(e=>e.contestId!==contestId||(e.examSessionId===mode.examSessionId&&e.generation===mode.generation));persist();
-      paintStatus();await flush();if(document.hidden)leave("hidden");else back();
+      paintStatus();await flush();checkFocus(document.hidden?"hidden":"blur");
     }
     lastSync=Date.now();return mode;
   }catch(error){if(token===state.token){exam.connected=false;paintStatus();}throw error;}
@@ -70,6 +79,11 @@ function report(eventType,source){
   if(queue.length>=100){exam.notice="Hàng đợi theo dõi đầy; một số tín hiệu không thể lưu cục bộ.";paintStatus();return;}
   queue.push(event);persist();void flush();
 }
+function checkFocus(source){
+  if(!active())return;
+  if(!document.hidden&&document.hasFocus()){back();if(ide.running)void ide.sample().catch(()=>{});return;}
+  if(ide.running)void ide.sample().catch(()=>{});else leave(source);
+}
 function leave(source){
   scope();if(!active()||away)return;away=true;
   exam.notice=source==="blur"?"Cửa sổ kiểm tra mất focus. Đây là tín hiệu cần giáo viên xem xét.":"Bạn đã rời khỏi trang kiểm tra. Hoạt động này đã được ghi nhận.";
@@ -77,7 +91,7 @@ function leave(source){
 }
 function back(){
   clearTimeout(blurTimer);if(!active()||!away||document.hidden||!document.hasFocus())return;
-  away=false;report("TAB_RETURN","focus");paintStatus();
+  away=false;exam.notice="Đã quay lại trang thi.";report("TAB_RETURN","focus");paintStatus();
 }
 function blockPaste(event,source){
   scope();if(!editorMatches(event.target)||!active())return;
@@ -93,9 +107,9 @@ document.addEventListener?.("beforeinput",event=>{if(["insertFromPaste","insertF
 }},true);
 document.addEventListener?.("input",event=>{if(blockedInput?.node===event.target){const previous=blockedInput;blockedInput=null;event.target.value=previous.value;event.target.setSelectionRange(previous.start,previous.end);event.stopImmediatePropagation();}},true);
 document.addEventListener?.("drop",event=>blockPaste(event,"drop"),true);
-document.addEventListener?.("visibilitychange",()=>{if(document.hidden){clearTimeout(blurTimer);leave("hidden");}else back();});
-globalThis.addEventListener?.("blur",()=>{clearTimeout(blurTimer);blurTimer=setTimeout(()=>leave(document.hidden?"hidden":"blur"),150);});
-globalThis.addEventListener?.("focus",back);
+document.addEventListener?.("visibilitychange",()=>{clearTimeout(blurTimer);if(!ide.running){if(document.hidden)leave("hidden");else back();}else blurTimer=setTimeout(()=>checkFocus(document.hidden?"hidden":"blur"),250);});
+globalThis.addEventListener?.("blur",()=>{clearTimeout(blurTimer);blurTimer=setTimeout(()=>checkFocus(document.hidden?"hidden":"blur"),250);});
+globalThis.addEventListener?.("focus",()=>{ide.noteFocus();back();if(ide.running)void ide.sample().catch(()=>{});});
 globalThis.addEventListener?.("online",()=>{if(selected())void loadExam().catch(()=>{});});
 globalThis.addEventListener?.("offline",()=>{exam.connected=false;paintStatus();});
 document.addEventListener?.("studyfix:exam-update",event=>{
@@ -121,6 +135,8 @@ export function renderExamMonitor(contest){
   return `<section class="card exam-monitor"><div class="card-head"><div><h3>${contest.id.startsWith("classroom:")?"GIÁM SÁT BÀI SỬA LỖI":"GIÁM SÁT BÀI KIỂM TRA"}</h3><p>Tín hiệu để xem xét; không tự kết luận gian lận hoặc trừ điểm.</p></div>${pill(mode?.enabled?"Exam Mode đang bật":"Học bình thường",mode?.enabled?"medium":"neutral")}</div><div class="card-body"><div class="exam-settings"><label>Ngưỡng rời trang<input id="exam-tab-limit" class="field" type="number" min="1" max="100" value="${esc(exam.tabDraft??mode?.tabLimit??3)}"></label><label>Ngưỡng dán bị chặn<input id="exam-paste-limit" class="field" type="number" min="1" max="100" value="${esc(exam.pasteDraft??mode?.pasteLimit??3)}"></label>${btn(mode?.enabled?"Tắt Exam Mode":"Bật Exam Mode","exam-toggle",mode?.enabled?"btn-soft":"btn-primary",`data-id="${esc(contest.id)}" data-enabled="${!mode?.enabled}"`)}${btn("Lưu ngưỡng","exam-thresholds","btn-soft",`data-id="${esc(contest.id)}"`)}</div><p>${students.filter(s=>s.online).length} sinh viên có phiên hoạt động · ${students.filter(s=>s.warning).length} sinh viên cần kiểm tra · cập nhật qua ${state.presenceTransport==="websocket"?"WebSocket":"polling"}.</p><div class="exam-settings"><input id="exam-monitor-query" class="field" aria-label="Tìm sinh viên giám sát" placeholder="Tìm sinh viên…" value="${esc(exam.query)}"><select id="exam-monitor-type" class="select"><option value="">Tất cả tín hiệu</option>${Object.entries(eventLabels).filter(([key])=>key!=="TAB_RETURN").map(([key,label])=>`<option value="${key}" ${exam.filter===key?"selected":""}>${label}</option>`).join("")}</select></div></div><div class="table-wrap"><table class="data-table"><thead><tr><th>Sinh viên</th><th>Trạng thái</th><th>Rời trang</th><th>Paste bị chặn</th><th>Cảnh báo</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td>${esc(s.displayName)}<small class="task-sub">${esc(s.username)}</small></td><td>${!s.online?"Không có heartbeat gần đây":s.away?"Mất focus / rời trang":"Đang thi"}</td><td>${s.tabCount}</td><td>${s.pasteCount}</td><td>${pill(s.warning?"Cần kiểm tra":"Bình thường",s.warning?"hard":"neutral")}</td><td>${btn("Lịch sử tín hiệu","exam-history","btn-soft btn-sm",`data-id="${esc(contest.id)}" data-user-id="${esc(s.userId)}"`)}</td></tr>`).join("")||'<tr><td colspan="6" class="empty-slim">Chưa có sinh viên mở bài thi trong lượt Exam Mode này.</td></tr>'}</tbody></table></div><div class="card-body">${(monitor?.recentEvents||[]).slice(0,8).map(e=>`<p><strong>${esc(e.displayName)}</strong> - ${esc(eventLabels[e.type]||e.type)} - ${dateTime(e.receivedAt)}</p>`).join("")}${btn("Xem tất cả sự kiện","exam-history","btn-soft btn-sm",`data-id="${esc(contest.id)}"`)}</div></section>`;
 }
 export async function examClick(action,data){
+  if(action==="exam-ide-help"){modal(`<div class="modal-head"><h3>Sử dụng VS Code / NetBeans khi thi</h3>${btn("Đóng","close-modal","btn-soft btn-sm")}</div><div class="modal-body"><p>Thực hiện trên máy Windows của từng học sinh. Khi dùng qua LAN, mở StudyFix bằng HTTPS để trình duyệt cho phép kết nối công cụ cục bộ.</p><ol><li><a href="/downloads/studyfix-ide-support.zip" download>Tải công cụ hỗ trợ IDE</a> và giải nén.</li><li>Mở PowerShell tại thư mục đã giải nén, chạy:</li></ol><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(`powershell -NoProfile -ExecutionPolicy Bypass -File .\run-ide-support.ps1 -StudyFixOrigin ${globalThis.location?.origin||"http://localhost:8080"}`)}</pre><p>Giữ công cụ đang chạy. Quay lại trang thi, bấm <b>Kết nối hỗ trợ IDE</b> và cho phép truy cập mạng cục bộ nếu trình duyệt hỏi.</p><p>Chỉ VS Code và NetBeans được miễn cảnh báo. Chuyển tab hoặc dùng trình duyệt khác vẫn bị ghi nhận. Công cụ mất kết nối sẽ khôi phục cảnh báo thông thường.</p></div>`);return;}
+  if(action==="exam-connect-ide"){if(globalThis.isSecureContext===false)throw Error("Trang thi cần HTTPS để kết nối công cụ IDE trên máy học sinh. Hãy mở địa chỉ HTTPS của StudyFix.");scope();if(!active())throw Error("Kết nối IDE khi lượt thi giám sát đang hoạt động.");try{await ide.connect();exam.notice="Đã kết nối. Có thể dùng VS Code và NetBeans khi làm bài.";}catch(_){throw Error("Chưa kết nối được công cụ IDE. Hãy mở Hướng dẫn IDE, chạy công cụ trên máy này và cho phép kết nối mạng cục bộ.");}paintStatus();return;}
   if(state.identity?.role!=="TEACHER")throw new Error("Chỉ giảng viên quản lý kỳ thi được thao tác.");
   if(action==="exam-toggle"||action==="exam-thresholds"){
     await assignment("EXAM_CONFIG",{contestId:data.id,enabled:action==="exam-toggle"?data.enabled==="true":!!exam.mode?.enabled,tabLimit:Number(document.getElementById("exam-tab-limit")?.value||3),pasteLimit:Number(document.getElementById("exam-paste-limit")?.value||3)});
@@ -137,7 +153,7 @@ document.addEventListener?.("input",event=>{if(state.identity?.role!=="TEACHER")
 document.addEventListener?.("change",event=>{if(event.target?.id==="exam-monitor-type"&&state.identity?.role==="TEACHER"){exam.filter=event.target.value;render();}});
 setExamHandlers({poll:async()=>{
   scope();if(!state.token||!contextRoom())return;
-  if(active()){if(!onExamPage())leave("navigation");else back();}
+  if(active()){if(!onExamPage())leave("navigation");else checkFocus(document.hidden?"hidden":"blur");}
   if(Date.now()-lastSync<5000)return;
   const id=(["contests","exam-organization","room"].includes(state.page)?selected():"")||(active()?exam.contestId:"");if(!id)return;
   try{await loadExam(id);if(state.identity?.role==="TEACHER"&&["contests","exam-organization","room"].includes(state.page))render();}catch(_){lastSync=Date.now();}

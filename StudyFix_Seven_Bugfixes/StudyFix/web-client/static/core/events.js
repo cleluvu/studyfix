@@ -8,6 +8,7 @@ import {contestAssignmentClick} from "../features/contests/contest-assignment.js
 import { root } from "./dom.js";
 import { classroomClick, classroomInput, loadClassroom } from "../features/classroom/classroom.js";
 import { callClick, leaveCall } from "../features/classroom/call.js";
+import { debugLibraryClick, debugLibraryInput } from "../features/classroom/debug-lessons.js";
 import { markChatReadIfVisible } from "../features/classroom/chat-notifications.js";
 import { state } from "./state.js";
 import {practiceClick,practiceInput,savePracticeDraft} from "../features/exercises/practice.js";
@@ -80,6 +81,7 @@ document.addEventListener("click", async (event) => {
     if(action.startsWith("exam-")){await examClick(action,d);return;}
     if(action.startsWith("admin-")){await adminClick(action,d);return;}
     if (action.startsWith("call-")) { await callClick(action); return; }
+    if(action.startsWith("debug-library-")){await debugLibraryClick(action,d);return;}
     if (action.startsWith("classroom-")) { await classroomClick(action, d); return; }
     if (action.startsWith("practice-")) { await practiceClick(action,d);return; }
     switch (action) {
@@ -275,20 +277,8 @@ document.addEventListener("click", async (event) => {
         break;
       case "go-debug-assignment":
       case "room-assignments":
-        savePracticeDraft();state.exerciseMode="room";
-        if(state.page==="room"&&state.room){
-          const roomId=state.room.roomId,token=state.token;
-          const [{setMeetingAssignmentRenderer},{renderExercises}]=await Promise.all([import("../features/classroom/meeting-view.js"),import("../features/exercises/exercises.js")]);
-          await Promise.all([loadAssignments(),...(state.identity.role==="TEACHER"?[loadCatalog(),loadProgress()]:[])]);
-          if(state.page!=="room"||state.room?.roomId!==roomId||state.token!==token)break;
-          setMeetingAssignmentRenderer(renderExercises);
-          state.meetingView="assignments";state.roomTab="code";state.meetingPanel="";render();
-          break;
-        }
-        state.page = "exercises";
-        state.catalogMode = action==="go-debug-assignment"?"DEBUG_COLLAB":"";
-        state.chosenExercise = null;
-        await loadPageData();
+        state.meetingPanel="assignments";state.meetingView="master";state.roomTab="code";
+        if(state.room)state.page="room";
         render();
         break;
       case "view-debug-detail": {
@@ -397,11 +387,8 @@ document.addEventListener("click", async (event) => {
         break;
       }
       case "open-assignment":
-        savePracticeDraft();state.exerciseMode="room";
-        if(state.page==="room"&&state.room){
-          const [{setMeetingAssignmentRenderer},{renderExercises}]=await Promise.all([import("../features/classroom/meeting-view.js"),import("../features/exercises/exercises.js")]);
-          setMeetingAssignmentRenderer(renderExercises);state.meetingView="assignments";state.roomTab="code";
-        }else state.page="exercises";
+        if(state.page==="room"){state.meetingPanel="assignments";render();break;}
+        savePracticeDraft();state.exerciseMode="room";state.page="exercises";
         await openAssignment(d.assignmentId);
         break;
       case "close-work":
@@ -532,6 +519,7 @@ root.addEventListener("submit", async (event) => {
       state.chatDraft = "";
       if (input) input.value = "";
     } else if (form.id === "assignment-form") {
+      if(state.page==="room")throw new Error("Giao bài học tập tại Theo Week. Phòng trực tuyến chỉ dùng để sửa code lỗi.");
       const data = new FormData(form);
       const scope =
         state.chosenExercise?.mode === "DEBUG_COLLAB"
@@ -619,6 +607,7 @@ root.addEventListener("input", (event) => {
   if(el.id==="new-room-code")state.newRoomCode=el.value;
   if(el.id==="overview-room-code")state.joinRoomCode=el.value;
   if(!event.isComposing&&(el.id==="room-search"||(el.id==="global-search"&&state.page==="overview")))queueRoomSearch(el);
+  debugLibraryInput(el);
   classroomInput(el);
   if (el.id === "shared-code") {
     state.roomBuffer = el.value;
@@ -661,6 +650,7 @@ window.addEventListener("pagehide", () => {
 
 root.addEventListener("change", async (event) => {
   const el = event.target;
+  debugLibraryInput(el);
   if (el.form?.id === "contest-form") {
     if (el.name === "title") state.contestTitle = el.value;
     if (el.name === "startInMinutes") state.contestStart = Number(el.value);
@@ -671,7 +661,6 @@ root.addEventListener("change", async (event) => {
   if(el.id==="practice-query")return; // Text search is handled by input/compositionend, including when render restores focus.
   if(el.id.startsWith("practice-")) {practiceInput(el);try{await practiceClick("practice-filter",{});}catch(e){fail(e);}return;}
   if(el.id==="classroom-history-round"){state.meetingHistoryRound=Number(el.value);return;}
-  if (el.id === "classroom-auto-check") { state.classroomAutoCheck = el.checked; return; }
   if(el.id==="contest-code-file"){
     const file=el.files?.[0];el.value="";
     try{await submitContestFile(file);}catch(e){fail(e);}

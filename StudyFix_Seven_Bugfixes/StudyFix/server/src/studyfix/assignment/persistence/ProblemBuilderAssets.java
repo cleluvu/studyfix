@@ -32,8 +32,8 @@ public final class ProblemBuilderAssets {
     String draft=r.getString(1);
     try{drafts.owned(c,who,draft);}catch(ProblemBuilderRepository.Failure denied){
      boolean allowed=false;
-     try(PreparedStatement published=c.prepareStatement("SELECT 1 FROM p3_builder_public_assets a JOIN p3_question_bank b ON b.exercise_id=a.exercise_id WHERE a.asset_id=? AND b.publication='PUBLISHED' AND b.deleted=0")){
-      published.setString(1,id);try(ResultSet access=published.executeQuery()){allowed=access.next();}
+     try(PreparedStatement published=c.prepareStatement("SELECT 1 FROM p3_builder_public_assets a JOIN p3_question_bank b ON b.exercise_id=a.exercise_id WHERE a.asset_id=? AND b.publication='PUBLISHED' AND b.deleted=0 AND (b.bank_scope='PRACTICE' OR (?='TEACHER' AND b.owner_id=?))")){
+      published.setString(1,id);published.setString(2,who.role().name());published.setString(3,who.userId());try(ResultSet access=published.executeQuery()){allowed=access.next();}
      }
      if(!allowed&&who.role()==Identity.Role.TEACHER){
       try(PreparedStatement review=c.prepareStatement("SELECT 1 FROM p3_builder_workflow w JOIN p3_builder_drafts d ON d.id=w.draft_id WHERE d.id=? AND w.reviewer_id=? AND w.state='IN_REVIEW' AND w.review_hash=d.content_hash AND d.deleted=0")){

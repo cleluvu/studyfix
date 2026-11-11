@@ -24,6 +24,20 @@ public final class QuestionBankIntegrationTest {
    Map<String,Object> detail=obj(assign(base,teacher,"BANK_GET",mapOf("exerciseId","BANK_DRAFT")).get("exercise"));check(rows(detail.get("tests")).size()==2,"author can edit full testcase set");
    try(Connection c=DriverManager.getConnection("jdbc:sqlite:"+db.toAbsolutePath());PreparedStatement p=c.prepareStatement("INSERT INTO users(user_id,username,password_hash,display_name,role) VALUES(?,?,?,?,?)")){p.setString(1,UUID.randomUUID().toString());p.setString(2,"bank_teacher2");p.setString(3,Passwords.hash("Teacher234!".toCharArray()));p.setString(4,"Teacher B");p.setString(5,"TEACHER");p.executeUpdate();}
    String foreign=login(base,"bank_teacher2","Teacher234!");check(send(base,foreign,"BANK_GET",mapOf("exerciseId","BANK_DRAFT")).status()!=200,"other Teacher cannot read private draft");
+   Map<String,Object> privateQuestion=question("BANK_PRIVATE","Private examination question","PUBLISHED");privateQuestion.put("bankScope","EXAM_PRIVATE");
+   assign(base,teacher,"CATALOG_CREATE",privateQuestion);
+   check(number(assign(base,teacher,"BANK_LIST",mapOf("query","BANK_PRIVATE")),"total",-1)==0,"private question is outside practice bank");
+   check(number(assign(base,teacher,"BANK_LIST",mapOf("bankScope","EXAM_PRIVATE","query","BANK_PRIVATE")),"total",-1)==1,"owner sees published question in private bank");
+   check(number(assign(base,student,"PRACTICE_LIST",mapOf("bankScope","EXAM_PRIVATE","query","BANK_PRIVATE")),"total",-1)==0,"student cannot list private questions even with forged scope");
+   for(String action:List.of("PRACTICE_GET","PRACTICE_SUBMISSIONS","PRACTICE_SUBMIT","PRACTICE_RUN"))check(send(base,student,action,mapOf("exerciseId","BANK_PRIVATE","sourceCode","public class Main {}","idempotencyKey","private-probe")).status()!=200,"private question blocked through "+action);
+   check(send(base,foreign,"BANK_GET",mapOf("exerciseId","BANK_PRIVATE")).status()!=200,"private publication is not shared with another teacher");
+   check(number(assign(base,foreign,"BANK_LIST",mapOf("bankScope","EXAM_PRIVATE","query","BANK_PRIVATE")),"total",-1)==0,"foreign teacher cannot list private publication");
+   String privateWeek=text(assign(base,teacher,"PRACTICE_WEEK_SAVE",mapOf("weekNo",99,"title","Private scope week")),"weekId","");
+   assign(base,teacher,"PRACTICE_WEEK_ADD",mapOf("weekId",privateWeek,"exerciseIds",List.of("BANK_PRIVATE")));
+   check(!stringify(assign(base,student,"PRACTICE_WEEK_LIST",Map.of())).contains("BANK_PRIVATE"),"week metadata never leaks private exercise IDs to students");
+   privateQuestion.put("expectedRevision",1);String privateRevision=text(obj(assign(base,teacher,"BANK_UPDATE",privateQuestion).get("exercise")),"id","");
+   check("EXAM_PRIVATE".equals(obj(assign(base,teacher,"BANK_GET",mapOf("exerciseId",privateRevision)).get("exercise")).get("bankScope")),"question edits preserve the private destination");
+   check(send(base,teacher,"BANK_LIST",mapOf("bankScope","UNKNOWN")).status()!=200,"invalid bank scope rejected");
    Map<String,Object> publish=question("BANK_DRAFT","Published bank question","PUBLISHED");publish.put("expectedRevision",1);String published=text(obj(assign(base,teacher,"BANK_UPDATE",publish).get("exercise")),"id","");
    check(!published.equals("BANK_DRAFT"),"edits create immutable version IDs");
    check(number(assign(base,student,"PRACTICE_LIST",mapOf("query","Published bank question")),"total",0)==1,"published version appears to Student");

@@ -78,6 +78,7 @@ export const humanVerdict = (value) =>
     PASS: "PASS",
     FAILED: "FAILED",
     WRONG_ANSWER: "Sai đáp án",
+    STRUCTURE_ERROR: "Chưa đúng cấu trúc",
     COMPILATION_ERROR: "Lỗi biên dịch",
     COMPILE_ERROR: "Lỗi biên dịch",
     MEMORY_LIMIT_EXCEEDED: "Quá bộ nhớ",
@@ -99,6 +100,7 @@ export const statusClass = (value) =>
     : [
           "FAILED",
           "WRONG_ANSWER",
+          "STRUCTURE_ERROR",
           "COMPILATION_ERROR",
           "COMPILE_ERROR",
           "MEMORY_LIMIT_EXCEEDED",

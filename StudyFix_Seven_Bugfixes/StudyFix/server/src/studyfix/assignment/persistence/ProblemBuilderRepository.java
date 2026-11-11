@@ -11,7 +11,7 @@ import static studyfix.assignment.protocol.AssignmentJson.*;
 public final class ProblemBuilderRepository {
  public static final class Failure extends RuntimeException { public final String code;public Failure(String code,String message){super(message);this.code=code;} }
  private final AssignmentRepository repo;
- private static final Set<String> KEYS=Set.of("schemaVersion","title","code","javaStructure","difficulty","estimatedMinutes","weekIds","learningOutcome","summary","visibility","statement","template","tests","grading","reference","incorrectSample","testGroups","topic");
+ private static final Set<String> KEYS=Set.of("schemaVersion","title","code","javaStructure","difficulty","estimatedMinutes","weekIds","learningOutcome","summary","visibility","statement","template","tests","grading","reference","incorrectSample","testGroups","topic","bankScope");
  public ProblemBuilderRepository(AssignmentRepository repo)throws SQLException{
   this.repo=repo;try(Connection c=repo.open();Statement s=c.createStatement()){
    s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_builder_drafts(id TEXT PRIMARY KEY,owner_id TEXT NOT NULL,base_exercise_id TEXT REFERENCES p3_exercises(id),base_revision INTEGER NOT NULL DEFAULT 0,code TEXT NOT NULL,revision INTEGER NOT NULL,current_step INTEGER NOT NULL,payload_json TEXT NOT NULL,content_hash TEXT NOT NULL,request_key TEXT NOT NULL,creation_hash TEXT NOT NULL,deleted INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(owner_id,request_key))");
@@ -47,7 +47,7 @@ public final class ProblemBuilderRepository {
  }
  public static Map<String,Object> normalize(Map<String,Object> raw){
   for(String key:raw.keySet())if(!KEYS.contains(key))throw new Failure("INVALID_REQUEST","Trường nháp không hỗ trợ: "+key);
-  Map<String,Object> data=new TreeMap<>(map(canonical(raw,0)));data.put("schemaVersion",1);
+  Map<String,Object> data=new TreeMap<>(map(canonical(raw,0)));data.put("schemaVersion",1);data.put("bankScope",QuestionBankRepository.scope(text(data,"bankScope","PRACTICE")));
   if(data.containsKey("testGroups")){if(!(data.get("testGroups") instanceof List<?> groups)||groups.isEmpty()||groups.size()>20||new HashSet<>(groups).size()!=groups.size()||groups.stream().anyMatch(x->!(x instanceof String name)||name.isBlank()||name.length()>60))throw new Failure("INVALID_REQUEST","Cần 1–20 tên nhóm test riêng biệt, tối đa 60 ký tự.");}
   for(String key:List.of("title","code","learningOutcome","summary","difficulty","javaStructure","visibility","reference","incorrectSample")){Object v=data.get(key);if(v!=null&&!(v instanceof String))throw new Failure("INVALID_REQUEST",key+" phải là chuỗi.");}
   String code=text(data,"code","").strip();if(!code.isEmpty()&&!code.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,63}"))throw new Failure("INVALID_REQUEST","Mã bài chỉ gồm chữ, số, _ và -, tối đa 64 ký tự.");data.put("code",code);
@@ -58,6 +58,7 @@ public final class ProblemBuilderRepository {
   Map<String,Object> statement=map(data.get("statement"));for(String key:List.of("description","inputFormat","outputFormat","constraints","sampleInput","sampleOutput","sampleExplanation","edgeCases")){Object value=statement.get(key);if(value!=null&&(!(value instanceof String)||((String)value).length()>12000))throw new Failure("INVALID_REQUEST","Nội dung "+key+" phải là chuỗi tối đa 12000 ký tự.");}
   if(statement.containsKey("attachments")&&!(statement.get("attachments") instanceof List<?>))throw new Failure("INVALID_REQUEST","File đính kèm phải là danh sách.");
   for(String key:List.of("weekIds","tests"))if(data.containsKey(key)&&!(data.get(key) instanceof List<?>))throw new Failure("INVALID_REQUEST",key+" phải là danh sách.");
+  if(map(data.get("grading")).containsKey("structure"))map(data.get("grading")).put("structure",studyfix.assignment.grading.StructureRules.normalize(map(data.get("grading")).get("structure")));
   ProblemTemplate.validate(map(data.get("template")));
   if(stringify(data).getBytes(StandardCharsets.UTF_8).length>96*1024)throw new Failure("INVALID_REQUEST","Nháp JSON vượt 96 KiB; file lớn cần qua upload riêng.");return data;
  }

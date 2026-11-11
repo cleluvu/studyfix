@@ -1,9 +1,13 @@
+import {loadAssignedWeeks,renderAssignedWeeks,openWeekAssignmentDialog,loadWeekProgress,pollWeekAssignments} from './week-assignments.js';
 import {openOjImport} from "./oj-import.js";
+import { loadDebugLibrary, renderDebugLibrary, pollDebugLibrary } from "../classroom/debug-lessons.js";
 import {safeMarkdown} from "../problem-builder/markdown.js";
 import {viewBankQuestion,editBankQuestion,deleteBankQuestion} from "./teacher-bank.js";
 import {weekBank,selectedWeek,loadWeeks,openWeekForm,openWeekManager,openWeekPicker} from "./week-bank.js";
 import {renderWeekBank} from "./week-bank-view.js";
 import {templateIcon} from "../../ui/template.js";
+import {renderBuilder} from "../problem-builder/view.js";
+import {renderBankTabs,renderBankTopbar} from "./question-bank-view.js";
 import {renderQuestionBank} from "./question-bank-view.js";
 import {state} from "../../core/state.js";
 import {assignment} from "../../core/api.js";
@@ -55,14 +59,15 @@ export async function loadPracticeList(){
   const snapshot=JSON.stringify([practice.items,practice.stats,practice.error]);
   try {
     if(state.bankView==="weeks"&&!weekBank.id){Object.assign(practice,{items:[],topics:[],stats:{total:0,accepted:0,failed:0,fresh:0},total:0,page:1,pages:1,error:""});return true;}
-    const result=await assignment(state.identity?.role==="TEACHER"?"BANK_LIST":"PRACTICE_LIST",{...(state.bankView==="weeks"?{weekId:weekBank.id}:{}),query:practice.query,topic:practice.topic,difficulty:practice.difficulty,mode:practice.mode,filterStatus:practice.filterStatus,page:practice.page});
+    const result=await assignment(state.identity?.role==="TEACHER"?"BANK_LIST":"PRACTICE_LIST",{bankScope:state.bankView==="private"?"EXAM_PRIVATE":"PRACTICE",...(state.bankView==="weeks"?{weekId:weekBank.id}:{}),query:practice.query,topic:practice.topic,difficulty:practice.difficulty,mode:practice.mode,filterStatus:practice.filterStatus,page:practice.page});
     if(request!==listRequest||owner!==state.identity?.userId)return false;
     Object.assign(practice,{items:result.exercises||[],topics:result.topics||[],stats:result.stats||{},page:result.page||1,total:result.total||0,pages:result.totalPages||1,error:""});
   }catch(e){if(request!==listRequest||owner!==state.identity?.userId)return false;practice.error=e.code==="UNKNOWN_ASSIGNMENT_ACTION"?"Server đang chạy chưa có API Ngân hàng câu hỏi. Đóng Server Manager cũ rồi mở lại, sau đó tải lại trang bằng Ctrl+Shift+R.":e.message;}
   return snapshot!==JSON.stringify([practice.items,practice.stats,practice.error]);
 }
 export async function loadPractice(){
-  scope();if(state.bankView==="weeks")await loadWeeks();await loadPracticeList();
+  if(state.bankView==="debug"&&state.identity?.role==="TEACHER"){await loadDebugLibrary();return;}
+  scope();if(state.bankView==="weeks"&&state.identity?.role==="STUDENT"){practice.exercise=null;selection("");await loadAssignedWeeks();return;}if(state.bankView==="create"&&state.identity?.role==="TEACHER"){const {openBuilderPage}=await import("../problem-builder/controller.js");await openBuilderPage();return;}if(state.bankView==="weeks"){await loadWeeks();if(weekBank.tab==="assigned")await loadWeekProgress();}await loadPracticeList();
   if(state.identity?.role==="TEACHER"){practice.exercise=null;selection("");practice.initialized=true;return;}
   if(!practice.initialized){practice.initialized=true;const id=savedSelection();if(id)try{await openPractice(id,false);}catch(e){practice.error=e.message;selection("");}}
   else if(practice.exercise){const draft=draftFor(practice.exercise.id);state.workCode=typeof draft?.code==="string"?draft.code:initial(practice.exercise);state.workCodeDirty=!!draft;}
@@ -115,6 +120,8 @@ export async function submitPractice(run=false){
   }finally{if(owner===practice.owner){practice.busy=false;render();}}
 }
 export async function pollPractice(){
+  if(state.page==="exercises"&&state.bankView==="debug"&&state.identity?.role==="TEACHER")return pollDebugLibrary();
+  if(state.bankView==="weeks"&&active())return pollWeekAssignments();
   if(!state.identity||state.identity.role==="TEACHER"||practice.owner!==state.identity.userId||!practice.pending.size)return false;
   const owner=practice.owner;let changed=false,finished=false;
   for(const [id,task] of [...practice.pending]) {
@@ -135,11 +142,11 @@ export async function practiceClick(action,d){
   switch(action){
     case "practice-select":{
       if(state.identity?.role!=="TEACHER")break;const e=practice.items.find(e=>e.id===d.id);if(!e)break;
-      if(practice.selected.has(e.id))practice.selected.delete(e.id);else practice.selected.set(e.id,{id:e.id,mode:e.mode,publication:e.publication});render();break;
+      if(practice.selected.has(e.id))practice.selected.delete(e.id);else practice.selected.set(e.id,{id:e.id,mode:e.mode,publication:e.publication,oj:e.oj});render();break;
     }
     case "practice-select-page":{
       if(state.identity?.role!=="TEACHER")break;const remove=practice.items.every(e=>practice.selected.has(e.id));
-      for(const e of practice.items)if(remove)practice.selected.delete(e.id);else practice.selected.set(e.id,{id:e.id,mode:e.mode,publication:e.publication});render();break;
+      for(const e of practice.items)if(remove)practice.selected.delete(e.id);else practice.selected.set(e.id,{id:e.id,mode:e.mode,publication:e.publication,oj:e.oj});render();break;
     }
     case "practice-bank-contest":{
       if(state.identity?.role!=="TEACHER")throw new Error("Chỉ giáo viên được tạo đề thi.");
@@ -148,13 +155,14 @@ export async function practiceClick(action,d){
       const {createExamFromQuestions}=await import("../exam-bank/index.js");await createExamFromQuestions(selected.map(e=>e.id));break;
     }
     case "practice-bank-assign":{
+      if(state.bankView==="weeks"){await openWeekAssignmentDialog(practice);break;}
       if(state.identity?.role!=="TEACHER"||!state.room)throw new Error("Giáo viên cần vào lớp trước khi giao bài.");
       if(practice.selected.size!==1)throw new Error("Chọn một câu hỏi để giao.");const id=practice.selected.keys().next().value;if(practice.selected.get(id)?.publication==="DRAFT")throw new Error("Xuất bản đề trước khi giao bài.");
       await loadCatalog();await loadStudents();const data=await assignment("CATALOG_GET",{exerciseId:id});state.chosenExercise=data.exercise;practice.bankAssignment=true;state.assignmentScope="ROOM";render();break;
     }
-    case "practice-view":savePracticeDraft();practice.exercise=null;selection("");practice.selected.clear();practice.query="";practice.topic="";practice.difficulty="";practice.mode="";practice.filterStatus="";practice.page=1;state.bankView=d.view==="weeks"?"weeks":"all";await navigate("exercises");break;
+    case "practice-view":savePracticeDraft();practice.exercise=null;selection("");practice.selected.clear();practice.query="";practice.topic="";practice.difficulty="";practice.mode="";practice.filterStatus="";practice.page=1;if(d.view==="create")state.creationBankScope=state.bankView==="private"?"EXAM_PRIVATE":"PRACTICE";state.bankView=(state.identity?.role==="TEACHER"?["all","weeks","private","create","debug"]:["all","weeks"]).includes(d.view)?d.view:"all";await navigate("exercises");break;
     case "practice-week-select":weekBank.id=d.id;weekBank.tab="list";practice.query="";practice.topic="";practice.difficulty="";practice.mode="";practice.filterStatus="";practice.selected.clear();practice.page=1;await loadPracticeList();render();break;
-    case "practice-week-tab":weekBank.tab=["list","info","stats"].includes(d.tab)?d.tab:"list";render();break;
+    case "practice-week-tab":weekBank.tab=["list","info","stats","assigned"].includes(d.tab)?d.tab:"list";if(weekBank.tab==="assigned")await loadWeekProgress();render();break;
     case "practice-week-new":openWeekForm(null,refreshWeekBank);break;
     case "practice-week-edit":openWeekForm(selectedWeek(),refreshWeekBank);break;
     case "practice-week-manage":openWeekManager(refreshWeekBank);break;
@@ -163,7 +171,7 @@ export async function practiceClick(action,d){
       if(!selectedWeek()?.isMine)throw new Error("Không có quyền sửa Week.");
       if(confirm("Gỡ bài này khỏi Week? Bài vẫn còn trong ngân hàng.")){await assignment("PRACTICE_WEEK_REMOVE",{weekId:weekBank.id,exerciseIds:[d.id]});practice.selected.delete(d.id);await refreshWeekBank();}break;
     }
-    case "practice-oj-import":openOjImport(refreshWeekBank);break;
+    case "practice-oj-import":openOjImport(refreshWeekBank,state.bankView==="private"?"EXAM_PRIVATE":"PRACTICE");break;
     case "practice-oj-publish":{const ids=[...practice.selected.values()].filter(e=>e.oj).map(e=>e.id);if(!ids.length)throw Error("Chọn đề OJ trước.");if(!confirm("Bạn xác nhận đã rà soát nội dung và muốn phát hành các đề đã chọn?"))break;await assignment("OJ_PUBLISH_BATCH",{exerciseIds:ids});practice.selected.clear();await refreshWeekBank();toast("Đã phát hành các đề được duyệt.","success");break;}
     case "practice-create":if(state.identity?.role==="TEACHER"){const {openBuilderDialog}=await import("../problem-builder/controller.js");await openBuilderDialog(async()=>{await loadPracticeList();render();});}break;
     case "practice-bank-view":await viewBankQuestion(d.id,refreshWeekBank);break;
@@ -194,7 +202,7 @@ function options(values,current){return values.map(v=>`<option value="${esc(v)}"
 function pagination(page,pages,total,action){return `<div class="room-pagination">${btn("← Trước",action,"btn-soft btn-sm",`data-page="${page-1}" ${page<=1?"disabled":""}`)}<span>Trang ${page}/${pages} · ${total} ${action==="practice-page"?"câu hỏi":"phiên bản"}</span>${btn("Sau →",action,"btn-soft btn-sm",`data-page="${page+1}" ${page>=pages?"disabled":""}`)}</div>`;}
 function renderPracticeRows(){
   const teacher=state.identity?.role==="TEACHER",weeks=state.bankView==="weeks";
-  if(teacher)return practice.items.map(e=>`<tr class="bank-management-row" data-action="practice-bank-view" data-id="${esc(e.id)}"><td class="bank-check-cell"><input type="checkbox" data-action="practice-select" data-id="${esc(e.id)}" aria-label="Chọn ${esc(e.title)}" ${practice.selected.has(e.id)?"checked":""}/></td><td class="bank-question-id">${esc(e.displayCode||e.id)}</td><td><button class="link-button" data-action="practice-bank-view" data-id="${esc(e.id)}">${esc(e.title)}</button><small class="bank-revision">v${e.revision||1}</small></td><td><span class="bank-category">${templateIcon("folder")}${esc(e.topic)}</span></td><td>${pill(e.difficulty,diffClass(e.difficulty))}</td><td class="bank-publication-cell">${pill(e.publication==="DRAFT"?"Bản nháp":"✓ Đã xuất bản",e.publication==="DRAFT"?"neutral":"easy")}</td>${weeks?"":`<td class="bank-usage">${Number(e.usageCount)||0}</td>`}<td>${btn(templateIcon("eye"),"practice-bank-view","bank-icon-action",`data-id="${esc(e.id)}" title="Xem đề" aria-label="Xem đề ${esc(e.title)}"`)}${btn(templateIcon("edit"),"practice-bank-edit","bank-icon-action",`data-id="${esc(e.id)}" title="Sửa đề" aria-label="Sửa đề ${esc(e.title)}" ${e.canManage?"":"disabled"}`)}${btn(templateIcon("trash"),"practice-bank-delete","bank-icon-action bank-remove-question",`data-id="${esc(e.id)}" data-revision="${e.revision}" title="Xóa đề khỏi ngân hàng" aria-label="Xóa đề ${esc(e.title)}" ${e.canManage?"":"disabled"}`)}${weeks&&selectedWeek()?.isMine?btn("×","practice-week-remove","bank-icon-action",`data-id="${esc(e.id)}" title="Gỡ khỏi Week (giữ đề)" aria-label="Gỡ ${esc(e.title)} khỏi Week"`):""}</td></tr>`).join("")||`<tr><td colspan="${weeks?7:8}" class="empty-slim">Không có đề phù hợp.</td></tr>`;
+  if(teacher)return practice.items.map(e=>`<tr class="bank-management-row" data-action="practice-bank-view" data-id="${esc(e.id)}"><td class="bank-check-cell"><input type="checkbox" data-action="practice-select" data-id="${esc(e.id)}" aria-label="Chọn ${esc(e.title)}" ${practice.selected.has(e.id)?"checked":""}/></td><td class="bank-question-id">${esc(e.displayCode||e.id)}</td><td><button class="link-button" data-action="practice-bank-view" data-id="${esc(e.id)}">${esc(e.title)}</button><small class="bank-revision">v${e.revision||1}</small></td><td><span class="bank-category">${templateIcon("folder")}${esc(e.topic)}</span></td><td>${pill(e.difficulty,diffClass(e.difficulty))}</td>${weeks?"":`<td class="bank-usage">${Number(e.usageCount)||0}</td>`}<td>${btn(templateIcon("eye"),"practice-bank-view","bank-icon-action",`data-id="${esc(e.id)}" title="Xem đề" aria-label="Xem đề ${esc(e.title)}"`)}${btn(templateIcon("edit"),"practice-bank-edit","bank-icon-action",`data-id="${esc(e.id)}" title="Sửa đề" aria-label="Sửa đề ${esc(e.title)}" ${e.canManage?"":"disabled"}`)}${btn(templateIcon("trash"),"practice-bank-delete","bank-icon-action bank-remove-question",`data-id="${esc(e.id)}" data-revision="${e.revision}" title="Xóa đề khỏi ngân hàng" aria-label="Xóa đề ${esc(e.title)}" ${e.canManage?"":"disabled"}`)}${weeks&&selectedWeek()?.isMine?btn("×","practice-week-remove","bank-icon-action",`data-id="${esc(e.id)}" title="Gỡ khỏi Week (giữ đề)" aria-label="Gỡ ${esc(e.title)} khỏi Week"`):""}</td></tr>`).join("")||`<tr><td colspan="${weeks?6:7}" class="empty-slim">Không có đề phù hợp.</td></tr>`;
   return practice.items.map(e=>`<tr class="practice-row ${e.practiceStatus==="AC"?"practice-ac":e.practiceStatus==="FAILED"?"practice-failed":""}" data-action="practice-open" data-id="${esc(e.id)}">
     ${teacher?`<td class="bank-check-cell"><input type="checkbox" data-action="practice-select" data-id="${esc(e.id)}" aria-label="Chọn ${esc(e.title)}" ${practice.selected.has(e.id)?"checked":""}/></td>`:""}
     <td class="bank-question-id">${esc(e.id)}</td>
@@ -216,6 +224,9 @@ function renderPracticeSearchResults(){
   if(warning){warning.textContent=practice.error;warning.hidden=!practice.error;}
 }
 export function renderPractice(){
+  if(state.bankView==="debug"&&state.identity?.role==="TEACHER")return renderDebugLibrary();
+  if(state.bankView==="weeks"&&state.identity?.role==="STUDENT")return renderAssignedWeeks();
+  if(state.bankView==="create"&&state.identity?.role==="TEACHER")return `<div class="question-bank is-teacher">${renderBankTopbar(state,"Tạo bài tập")}<div class="bank-page">${renderBankTabs(state)}${renderBuilder()}</div></div>`;
   const warning=`<div id="practice-filter-error" class="notice-box warn" ${practice.error?"":"hidden"}>${esc(practice.error)}</div>`;
   if(practice.exercise&&state.identity?.role!=="TEACHER")return `<div class="question-bank-work">${renderPracticeWork(warning)}</div>`;
   const filters=`<div class="filter-panel practice-filters bank-filters"><label class="bank-search"><span class="bank-filter-label">Tìm kiếm</span><input class="field" id="practice-query" maxlength="160" aria-label="Tìm câu hỏi" placeholder="Tìm theo mã hoặc tên câu hỏi…" value="${esc(practice.query)}"></label><label><span class="bank-filter-label">${state.bankView==="weeks"?"Dạng bài":"Week"}</span><select class="select" id="practice-topic" aria-label="${state.bankView==='weeks'?'Dạng bài':'Week / Dạng bài'}"><option value="">${state.bankView==="weeks"?"Dạng bài: Tất cả":"Week: Tất cả"}</option>${options(practice.topics,practice.topic)}</select></label><label><span class="bank-filter-label">Loại bài</span><select class="select" id="practice-mode" aria-label="Loại bài"><option value="">Tất cả loại bài</option><option value="PROGRAM" ${practice.mode==="PROGRAM"?"selected":""}>Program</option><option value="METHOD" ${practice.mode==="METHOD"?"selected":""}>Method</option><option value="CLASS" ${practice.mode==="CLASS"?"selected":""}>Class</option></select></label><label><span class="bank-filter-label">Độ khó</span><select class="select" id="practice-difficulty" aria-label="Độ khó"><option value="">Tất cả độ khó</option>${options(["Dễ","Trung bình","Khó"],practice.difficulty)}</select></label>${state.identity?.role==="TEACHER"?"":`<label><span class="bank-filter-label">Kết quả của bạn</span><select class="select" id="practice-status" aria-label="Trạng thái"><option value="">Tất cả trạng thái</option>${Object.entries(labels).map(([value,[label]])=>`<option value="${value}" ${value===practice.filterStatus?"selected":""}>${label}</option>`).join("")}</select></label>`}</div>`;

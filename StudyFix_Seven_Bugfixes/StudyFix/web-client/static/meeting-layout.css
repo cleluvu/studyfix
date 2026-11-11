@@ -11,7 +11,12 @@
 .room-shell .meeting-stage{min-height:0;display:flex;flex-direction:column;border-radius:14px;background:#fff;overflow:hidden}
 .room-shell .meeting-stage-toolbar{flex-shrink:0;min-height:50px;padding:8px 12px}
 .room-shell .meeting-content{flex:1;min-height:0;overflow:auto;padding:14px;display:flex;flex-direction:column}
-.room-shell .meeting-code-workspace{flex:1;min-height:360px}
+/* Reserve separate rows for the file header, scrollable code and complete action bar. */
+.room-shell .meeting-code-workspace{display:grid;grid-template-rows:auto minmax(0,1fr) auto;flex:0 0 auto;height:clamp(260px,46dvh,560px);min-height:260px;min-width:0;overflow:hidden}
+.room-shell .meeting-code-workspace .meeting-editor{min-height:0;min-width:0;overflow:hidden}
+.room-shell .meeting-code-workspace .meeting-editor .code-editor{min-height:0!important;height:100%;box-sizing:border-box}
+.room-shell .meeting-code-workspace .meeting-editor-actions{min-width:0;flex-shrink:0;align-self:stretch;position:relative;z-index:1}
+.room-shell .meeting-code-workspace .meeting-editor-actions .btn{flex-shrink:0}
 .room-shell .meeting-editor{flex:1}
 .room-shell .meeting-video-strip{flex-shrink:0;max-height:150px}
 .room-shell .meeting-drawer{display:flex;flex-direction:column;position:relative;inset:auto;width:auto;min-width:0;min-height:0;overflow:hidden;border:1px solid #e4deee;border-radius:14px;background:#fff;box-shadow:0 4px 18px #32205008}
@@ -51,3 +56,33 @@
 .room-shell .meeting-assignment-workspace .page-header{margin-bottom:16px}
 @media(max-width:1100px){.room-shell .meeting-shell:not([data-open-panel=""]) .meeting-body{grid-template-columns:minmax(0,1fr) 320px}.room-shell .meeting-session-title h2{font-size:17px}.room-shell .meeting-tool{min-width:48px;padding:6px}.room-shell .meeting-footer{gap:8px;padding:8px}}
 @media(max-width:800px){.room-shell .meeting-shell{padding:8px;gap:8px}.room-shell .meeting-shell:not([data-open-panel=""]) .meeting-body{grid-template-columns:minmax(0,1fr)}.room-shell .meeting-drawer{position:absolute;inset:0 0 0 auto;width:min(380px,100%);z-index:5;box-shadow:-10px 0 30px #21113522}.room-shell .meeting-header{min-height:44px;gap:8px}.room-shell .meeting-session-title{min-width:0;flex:1}.room-shell .meeting-session-title h2{font-size:15px}.room-shell .meeting-header .meeting-live{display:none}.room-shell .meeting-title-icon{width:34px;height:34px}.room-shell .meeting-footer{grid-template-columns:1fr auto;gap:8px;min-height:0}.room-shell .meeting-center-tools{grid-column:1/-1;grid-row:2;justify-content:flex-start;padding-top:8px;border-top:1px solid #eee9f3}.room-shell .meeting-leave-tools{grid-column:2;grid-row:1}.room-shell .meeting-device-tools{grid-column:1;grid-row:1}.room-shell .meeting-tool{min-height:44px}.room-shell .meeting-stage-toolbar{padding:7px}.room-shell .meeting-content{padding:10px}.room-shell .meeting-stage-tabs button{padding:7px}.room-shell .meeting-leave{padding:11px 13px}}
+
+/* Keep grading feedback outside the editor, whose height is constrained on laptops. */
+.meeting-terminal.meeting-submission-result{flex-shrink:0;min-height:0;max-height:none;overflow:visible;border:1px solid #d8c9ed;border-radius:12px;background:#fff;color:#332642}
+.meeting-submission-result .meeting-terminal-head{border:0;border-bottom:1px solid #e5dcef;border-radius:11px 11px 0 0;background:#f4effc;padding:12px 14px;gap:10px;color:#49315f;font-size:13px}
+.meeting-submission-result .meeting-terminal-head strong{color:#332045;font-weight:700}
+.meeting-submission-result .meeting-terminal-head small{color:#786889}
+.meeting-submission-result .meeting-terminal-head .btn{color:#7338b3;font-size:11px;margin-left:0}
+.classroom-result-body{padding:0 14px;max-height:300px;overflow:auto}
+.classroom-result-message,.classroom-result-stale{font-size:13px;line-height:1.6;margin:12px 0;color:#6f5c81}
+.classroom-result-stale{background:#fff4da;color:#805a12;padding:10px 14px;margin:0}
+.meeting-submission-result pre.classroom-result-feedback{font-size:12px;color:#95404c;margin:12px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.meeting-submission-result pre.terminal-success{color:#207e4a}
+.meeting-submission-result .meeting-terminal-score{padding:0;margin:10px 0;color:#6b587d;font-size:12px}
+.classroom-test-results{list-style:none;padding:0;margin:12px 0;display:grid;gap:8px}
+.classroom-test-row{border:1px solid #e8ddef;border-left:4px solid #d44f68;border-radius:8px;padding:10px;font-size:12px;background:#fffafd}
+.classroom-test-row.passed{border-left-color:#319561;background:#f7fcf9}
+.classroom-test-row summary{cursor:pointer;font-weight:600;color:#633649}
+.classroom-test-row.passed summary,.classroom-test-row.passed>strong{color:#267249}
+.classroom-test-row p{margin:8px 0;color:#76617f;overflow-wrap:anywhere}
+.classroom-test-value strong{display:block;color:#64516f;font-size:11px;margin:8px 0 4px}
+.meeting-submission-result .classroom-test-value pre{margin:0;padding:8px;border-radius:6px;background:#f2edf7;color:#33263d;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+@media(max-width:600px){.meeting-submission-result .meeting-terminal-head{gap:8px;padding:10px;font-size:12px}.classroom-result-body{padding:0 10px;max-height:260px}}
+.debug-reference-code{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto}
+[data-debug-dialog] label{display:block;margin:14px 0 6px}
+[data-debug-dialog] #debug-code{display:block;width:100%;box-sizing:border-box;min-height:320px;margin:8px 0;font-family:Consolas,monospace;white-space:pre;overflow:auto}
+[data-debug-dialog] #debug-save-status{white-space:pre-wrap;line-height:1.6}
+.debug-library-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;overflow-wrap:anywhere}
+.debug-library-row>div:first-child{display:grid;gap:7px;min-width:0}
+.debug-library-row>.tool-row{flex-shrink:0}
+@media(max-width:650px){.debug-library-row{align-items:flex-start;flex-direction:column}[data-debug-dialog] #debug-code{min-height:260px}}

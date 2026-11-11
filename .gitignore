@@ -26,3 +26,21 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# Generated StudyFix build and test files
+**/build-*/
+**/logs/
+**/browser-profile-*/
+
+# Browser temporary data
+**/Crashpad/
+**/Default/
+
+# Runtime logs
+*.log
+
+# SQLite temporary files
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm

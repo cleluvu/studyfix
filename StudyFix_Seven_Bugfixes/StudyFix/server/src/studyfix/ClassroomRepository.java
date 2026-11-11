@@ -15,6 +15,8 @@ final class ClassroomRepository {
     ClassroomRepository(Store store) { this.store = store; }
 
     static void migrate(Connection db) throws SQLException {
+        DebugLessonRepository.migrate(db);
+        DebugLibraryRepository.migrate(db);
         try (Statement s = db.createStatement()) {
             s.execute("CREATE TABLE IF NOT EXISTS classroom_schema(version INTEGER PRIMARY KEY)");
             s.execute("CREATE TABLE IF NOT EXISTS classroom_sessions(room_id INTEGER PRIMARY KEY REFERENCES rooms(room_id), phase TEXT NOT NULL CHECK(phase IN ('WAITING','LECTURE','BRANCHING','MERGING','ENDED')), round INTEGER NOT NULL, exercise_id TEXT NOT NULL, base_version INTEGER NOT NULL, updated_at INTEGER NOT NULL)");

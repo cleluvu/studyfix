@@ -191,7 +191,7 @@ public final class DockerJavaSandbox implements GradingSandbox {
                 String message = ok ? "Đạt" : (test.hidden()
                         ? "Hidden test không đạt."
                         : "Sai kết quả. Output thực tế: " + safe(actual));
-                testResults.add(testRow(test, ok, message, execution.elapsedMillis()));
+                testResults.add(testRow(test, ok, message, execution.elapsedMillis(), actual));
             }
 
             String verdict;
@@ -371,9 +371,15 @@ public final class DockerJavaSandbox implements GradingSandbox {
         row.put("passed", passed);
         row.put("message", test.hidden() ? (passed ? "Hidden test đạt" : "Hidden test không đạt") : message);
         row.put("durationMs", duration);
+        if(!test.hidden()) { row.put("input",safe(test.input())); row.put("expectedOutput",safe(test.expected())); }
         return row;
     }
 
+    private static Map<String,Object> testRow(Exercise.TestCase test,boolean passed,String message,long duration,String actual) {
+        Map<String,Object> row=testRow(test,passed,message,duration);
+        if(!test.hidden())row.put("actualOutput",safe(actual));
+        return row;
+    }
     private static GradingResult unavailable(long start, String feedback, double maxScore, int total) {
         return result("SANDBOX_UNAVAILABLE", 0, maxScore, 0, total, safe(feedback), start, List.of());
     }

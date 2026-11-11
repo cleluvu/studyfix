@@ -9,9 +9,20 @@ import static studyfix.assignment.protocol.AssignmentJson.*;
 /** OJ adapters. Only the current test is delivered; expected output stays on the server. */
 public final class OjJavaSandbox {
  private final DockerJavaSandbox docker;
+ private final String image;
  private static final String FORMAT="static String fmt(Object x){if(x==null)return \"null\";Class<?> c=x.getClass();if(c.isArray()){if(x instanceof int[])return java.util.Arrays.toString((int[])x);if(x instanceof long[])return java.util.Arrays.toString((long[])x);if(x instanceof Object[])return java.util.Arrays.deepToString((Object[])x);}if(x instanceof java.util.Map)return new java.util.TreeMap<>((java.util.Map)x).toString();if(x instanceof java.util.Set)return new java.util.TreeSet<>((java.util.Set)x).toString();return x.toString();}";
- public OjJavaSandbox(String image){docker=new DockerJavaSandbox(image,3,90);}
+ public OjJavaSandbox(String image){this.image=image;docker=new DockerJavaSandbox(image,3,90);}
  public GradingResult grade(Exercise exercise,String source,List<Exercise.TestCase> tests,double maxScore,Map<String,Object> config)throws Exception{
+  Map<String,Object> rules=StructureRules.normalize(config.get("structure_rules"));
+  if(!Boolean.TRUE.equals(rules.get("enabled")))return gradeBehavior(exercise,source,tests,maxScore,config);
+  long start=System.nanoTime();Map<String,Object> inspected=new StructureJudge(image).inspect(exercise,source,config,rules);
+  if(inspected.containsKey("error")){if("COMPILE_ERROR".equals(inspected.get("error")))return gradeBehavior(exercise,source,tests,maxScore,config);return result("SANDBOX_UNAVAILABLE",0,maxScore,0,tests.size(),"Không hoàn tất phân tích cấu trúc; kiểm tra trạng thái Docker.",start,List.of());}
+  List<Map<String,Object>> checks=list(inspected.get("checks")).stream().map(v->map(v)).toList();
+  boolean blocked=Boolean.TRUE.equals(rules.get("gate"))&&checks.stream().anyMatch(c->!Boolean.TRUE.equals(c.get("passed")));
+  GradingResult behavior=blocked?new GradingResult("STRUCTURE_ERROR",0,maxScore,0,tests.size(),"Chưa chạy test hành vi vì thiếu cấu trúc bắt buộc.",0,List.of()):((Number)rules.get("weight")).doubleValue()==100?new GradingResult("ACCEPTED",maxScore,maxScore,0,0,"Bài chỉ chấm cấu trúc.",0,List.of()):gradeBehavior(exercise,source,tests,maxScore,config);
+  return StructureJudge.combine(behavior,rules,checks,maxScore,TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-start));
+ }
+ private GradingResult gradeBehavior(Exercise exercise,String source,List<Exercise.TestCase> tests,double maxScore,Map<String,Object> config)throws Exception{
   long start=System.nanoTime(),deadline=start+TimeUnit.MILLISECONDS.toNanos(DockerJavaSandbox.jobWallMillis()),executionRemaining=90000;int memory=integer(config,"memory_limit_mb",256),output=integer(config,"output_limit_kb",2048)*1024;
   String entry=exercise.entryFile();if(!entry.matches("[A-Za-z][A-Za-z0-9_]*\\.java"))throw new IllegalArgumentException("Invalid entry file");
   if(source==null||source.getBytes(StandardCharsets.UTF_8).length>32768)return result("COMPILE_ERROR",0,maxScore,0,tests.size(),"Source vượt 32 KiB.",start,List.of());
@@ -47,7 +58,7 @@ public final class OjJavaSandbox {
  private static String compileVerdict(DockerJavaSandbox.ProcessResult r){return r.startFailure()!=null||r.exitCode()==125||r.exitCode()==126||r.exitCode()==127?"SANDBOX_UNAVAILABLE":r.timedOut()?"TIME_LIMIT_EXCEEDED":"COMPILE_ERROR";}
  private static String normalize(String value){return value.replace("\r\n","\n").replace('\r','\n');}
  public static boolean compare(String actual,String expected,Map<String,Object> config){
-  String mode=text(config,"checker","EXACT");if(mode.equals("EXACT"))return normalize(actual).equals(normalize(expected));
+  String mode=text(config,"checker","EXACT");if(mode.equals("exact_utf8_with_normalized_line_endings"))mode="EXACT";if(mode.equals("EXACT"))return normalize(actual).equals(normalize(expected));
   String[] a=actual.strip().isEmpty()?new String[0]:actual.strip().split("\\s+"),b=expected.strip().isEmpty()?new String[0]:expected.strip().split("\\s+");if(a.length!=b.length)return false;
   double epsilon=config.get("epsilon") instanceof Number n?n.doubleValue():0.000001;
   for(int i=0;i<a.length;i++){if(mode.equals("TOKEN")){if(!a[i].equals(b[i]))return false;continue;}try{double x=Double.parseDouble(a[i]),y=Double.parseDouble(b[i]);if(!Double.isFinite(x)||!Double.isFinite(y)||Math.abs(x-y)>epsilon*Math.max(1,Math.abs(y)))return false;}catch(NumberFormatException e){if(!a[i].equals(b[i]))return false;}}return true;

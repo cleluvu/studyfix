@@ -10,6 +10,25 @@
 <project xmlns:if="ant:if" xmlns:unless="ant:unless" name="studyfix" default="default" basedir=".">
     <description>Builds, tests, and runs the project studyfix.</description>
     <import file="nbproject/build-impl.xml"/>
+    <target name="-post-compile">
+        <mkdir dir="${build.classes.dir}/studyfix/assignment/grading/inspector-sources"/>
+        <copy file="src/studyfix/assignment/grading/StructureInspector.java" tofile="${build.classes.dir}/studyfix/assignment/grading/inspector-sources/StructureInspector.java.txt"/>
+        <copy file="src/studyfix/assignment/protocol/AssignmentJson.java" tofile="${build.classes.dir}/studyfix/assignment/grading/inspector-sources/AssignmentJson.java.txt"/>
+    </target>
+    <target name="oop-structure-test" depends="exam-organization-compile-tests" description="Real Docker AST OOP rules, Builder publication, scoring and SQLite reports">
+        <java classname="studyfix.OopStructureIntegrationTest" fork="true" failonerror="true" timeout="600000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="week-assignment-test" depends="exam-organization-compile-tests" description="Independent weekly assignments, durable roster, receipt ACLs, Docker grading and restart">
+        <java classname="studyfix.WeekAssignmentIntegrationTest" fork="true" failonerror="true" timeout="600000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
     <!-- NetBeans compiler hook: release 26; keep generated build-impl.xml intact. -->
     <target depends="-init-ap-cmdline-properties,-init-source-module-properties" if="modules.supported.internal" name="-init-macrodef-javac-with-module">
         <macrodef name="javac" uri="http://www.netbeans.org/ns/j2se-project/3">
@@ -271,6 +290,13 @@
             <sysproperty key="file.encoding" value="UTF-8"/>
         </java>
     </target>
+    <target name="private-bank-test" depends="classroom-test" description="Private bank publication, Docker validation and asset access">
+        <java classname="studyfix.PrivateBankIntegrationTest" fork="true" failonerror="true" timeout="120000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+        </java>
+    </target>
     <target name="question-bank-test" depends="classroom-test" description="Teacher question bank management and immutable versions">
         <java classname="studyfix.QuestionBankIntegrationTest" fork="true" failonerror="true" timeout="90000">
             <sysproperty key="studyfix.legacy.sqlite" value="true"/>
@@ -507,6 +533,20 @@
     nbproject/build-impl.xml file. 
 
     -->
+    <target name="equal-ten-scoring-test" depends="classroom-test" description="Editable question weights normalized to ten, random allocation and scheduled exams">
+        <java classname="studyfix.EqualTenScoringIntegrationTest" fork="true" failonerror="true" timeout="90000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+        </java>
+    </target>
+    <target name="exam-sources-test" depends="classroom-test" description="Exam sources, private bank scope and source filters">
+        <java classname="studyfix.ExamSourcesIntegrationTest" fork="true" failonerror="true" timeout="90000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <sysproperty key="file.encoding" value="UTF-8"/>
+        </java>
+    </target>
     <target name="exam-bank-test" depends="jar" description="Isolated exam template bank HTTP/SQLite regression tests">
         <mkdir dir="${build.dir}/exam-bank-test-classes"/>
         <javac srcdir="test" destdir="${build.dir}/exam-bank-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
@@ -547,5 +587,32 @@
         <mkdir dir="${build.dir}/student-test-classes"/>
         <javac srcdir="test" includes="studyfix/TeacherDashboardIntegrationTest.java,studyfix/StudentPortalIntegrationTest.java" destdir="${build.dir}/student-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false"><classpath path="${javac.classpath};${build.classes.dir}"/></javac>
         <java classname="studyfix.StudentPortalIntegrationTest" fork="true" failonerror="true" timeout="90000"><classpath path="${javac.classpath};${build.classes.dir};${build.dir}/student-test-classes"/><jvmarg value="--enable-native-access=ALL-UNNAMED"/><jvmarg value="-Dfile.encoding=UTF-8"/></java>
+    </target>
+    <target name="debug-lesson-test" depends="compile" description="Bank-to-classroom mutation, HTTP privacy, immutable grading and restart">
+        <mkdir dir="${build.dir}/classroom-test-classes"/>
+        <javac srcdir="test" includes="studyfix/ClassroomIntegrationTest.java,studyfix/DebugLessonIntegrationTest.java" destdir="${build.dir}/classroom-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false">
+            <classpath path="${javac.classpath};${build.classes.dir}"/>
+        </javac>
+        <java classname="studyfix.DebugLessonIntegrationTest" fork="true" failonerror="true" timeout="180000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+        </java>
+    </target>
+    <target name="debug-lesson-docker-test" depends="debug-lesson-test" description="Real Docker bank-to-classroom generation and branch grading">
+        <java classname="studyfix.DebugLessonIntegrationTest" fork="true" failonerror="true" timeout="360000">
+            <classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/>
+            <jvmarg value="--enable-native-access=ALL-UNNAMED"/>
+            <jvmarg value="-Dfile.encoding=UTF-8"/>
+            <arg value="--docker"/>
+        </java>
+    </target>
+    <target name="debug-library-test" depends="compile" description="Teacher manual buggy exercise library prepared outside rooms and reused with snapshots">
+        <mkdir dir="${build.dir}/classroom-test-classes"/>
+        <javac srcdir="test" includes="studyfix/ClassroomIntegrationTest.java,studyfix/DebugLessonIntegrationTest.java,studyfix/DebugLibraryIntegrationTest.java" destdir="${build.dir}/classroom-test-classes" release="${javac.release}" encoding="UTF-8" includeantruntime="false"><classpath path="${javac.classpath};${build.classes.dir}"/></javac>
+        <java classname="studyfix.DebugLibraryIntegrationTest" fork="true" failonerror="true" timeout="180000"><classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/><jvmarg value="--enable-native-access=ALL-UNNAMED"/><jvmarg value="-Dfile.encoding=UTF-8"/></java>
+    </target>
+    <target name="debug-library-docker-test" depends="debug-library-test" description="Real Docker manual library validation and student grading">
+        <java classname="studyfix.DebugLibraryIntegrationTest" fork="true" failonerror="true" timeout="300000"><classpath path="${javac.classpath};${build.classes.dir};${build.dir}/classroom-test-classes"/><jvmarg value="--enable-native-access=ALL-UNNAMED"/><jvmarg value="-Dfile.encoding=UTF-8"/><arg value="--docker"/></java>
     </target>
 </project>

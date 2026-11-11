@@ -13,7 +13,7 @@ public final class PracticeRepository {
     public PracticeRepository(Path database)throws SQLException {
         url="jdbc:sqlite:"+database.toAbsolutePath();
         try(Connection c=open();Statement s=c.createStatement()) {
-            s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_practice_submissions(id TEXT PRIMARY KEY,exercise_id TEXT NOT NULL REFERENCES p3_exercises(id),user_id TEXT NOT NULL,version INTEGER NOT NULL,is_run INTEGER NOT NULL,source_code TEXT NOT NULL,submitted_at INTEGER NOT NULL,status TEXT NOT NULL,verdict TEXT NOT NULL,score REAL NOT NULL DEFAULT 0,passed_tests INTEGER NOT NULL DEFAULT 0,total_tests INTEGER NOT NULL DEFAULT 0,feedback TEXT NOT NULL DEFAULT '',duration_ms INTEGER NOT NULL DEFAULT 0,test_results TEXT NOT NULL DEFAULT '[]',request_key TEXT NOT NULL,UNIQUE(user_id,request_key))");
+            StructureResultStore.ensure(c);s.executeUpdate("CREATE TABLE IF NOT EXISTS p3_practice_submissions(id TEXT PRIMARY KEY,exercise_id TEXT NOT NULL REFERENCES p3_exercises(id),user_id TEXT NOT NULL,version INTEGER NOT NULL,is_run INTEGER NOT NULL,source_code TEXT NOT NULL,submitted_at INTEGER NOT NULL,status TEXT NOT NULL,verdict TEXT NOT NULL,score REAL NOT NULL DEFAULT 0,passed_tests INTEGER NOT NULL DEFAULT 0,total_tests INTEGER NOT NULL DEFAULT 0,feedback TEXT NOT NULL DEFAULT '',duration_ms INTEGER NOT NULL DEFAULT 0,test_results TEXT NOT NULL DEFAULT '[]',request_key TEXT NOT NULL,UNIQUE(user_id,request_key))");
             s.executeUpdate("CREATE UNIQUE INDEX IF NOT EXISTS p3_practice_version ON p3_practice_submissions(user_id,exercise_id,version) WHERE is_run=0");
             s.executeUpdate("CREATE INDEX IF NOT EXISTS p3_practice_history ON p3_practice_submissions(user_id,exercise_id,is_run,submitted_at)");
         }
@@ -29,7 +29,7 @@ public final class PracticeRepository {
         return AssignmentJson.mapOf("id",r.getString("id"),"exerciseId",r.getString("exercise_id"),"userId",r.getString("user_id"),"version",r.getInt("version"),"isRun",r.getInt("is_run")!=0,"sourceCode",r.getString("source_code"),"submittedAt",r.getLong("submitted_at"),"status",r.getString("status"),"verdict",r.getString("verdict"),"score",r.getDouble("score"),"maxScore",100,"passedTests",r.getInt("passed_tests"),"totalTests",r.getInt("total_tests"),"feedback",r.getString("feedback"),"durationMs",r.getLong("duration_ms"),"testResults",AssignmentJson.parse(r.getString("test_results")));
     }
     public Map<String,Object> get(String id)throws SQLException {
-        try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT * FROM p3_practice_submissions WHERE id=?")){p.setString(1,id);try(ResultSet r=p.executeQuery()){return r.next()?row(r):null;}}
+        try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT * FROM p3_practice_submissions WHERE id=?")){p.setString(1,id);try(ResultSet r=p.executeQuery()){if(!r.next())return null;var result=row(r);result.put("structureResults",StructureResultStore.read(c,id));return result;}}
     }
     public Map<String,Object> byKey(String user,String key)throws SQLException {
         try(Connection c=open();PreparedStatement p=c.prepareStatement("SELECT * FROM p3_practice_submissions WHERE user_id=? AND request_key=?")){p.setString(1,user);p.setString(2,key);try(ResultSet r=p.executeQuery()){return r.next()?row(r):null;}}
@@ -58,7 +58,7 @@ public final class PracticeRepository {
             tests.add(AssignmentJson.mapOf("index",ordinal,"hidden",hidden,"passed",Boolean.TRUE.equals(test.get("passed")),"message",hidden?"Test ẩn: "+(Boolean.TRUE.equals(test.get("passed"))?"đạt":"không đạt"):String.valueOf(test.getOrDefault("message","")),"durationMs",test.getOrDefault("durationMs",0)));
         }
         try(Connection c=open();PreparedStatement p=c.prepareStatement("UPDATE p3_practice_submissions SET status='DONE',verdict=?,score=?,passed_tests=?,total_tests=?,feedback=?,duration_ms=?,test_results=? WHERE id=? AND status IN ('QUEUED','RUNNING')")) {
-            p.setString(1,result.verdict());p.setDouble(2,result.score());p.setInt(3,result.passed());p.setInt(4,result.total());p.setString(5,result.feedback());p.setLong(6,result.durationMillis());p.setString(7,AssignmentJson.stringify(tests));p.setString(8,id);p.executeUpdate();
+            c.setAutoCommit(false);p.setString(1,result.verdict());p.setDouble(2,result.score());p.setInt(3,result.passed());p.setInt(4,result.total());p.setString(5,result.feedback());p.setLong(6,result.durationMillis());p.setString(7,AssignmentJson.stringify(tests));p.setString(8,id);if(p.executeUpdate()>0)StructureResultStore.write(c,id,result.structureResults());c.commit();
         }
     }
     public List<String> recover()throws SQLException {

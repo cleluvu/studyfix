@@ -7,19 +7,20 @@ import { render } from "../../ui/render.js";
 import { toast, fail } from "../../ui/toast.js";
 import { renderMeeting } from "./meeting-view.js";
 import {meetingMatches} from "./meeting-search.js";
+import { debugLessonClick } from "./debug-lessons.js";
+import { checkSummary, checkDetails } from "./classroom-results.js";
 
 const phases = { WAITING: "Chờ bắt đầu", LECTURE: "Giảng bài", BRANCHING: "Học sinh sửa nhánh", MERGING: "Chọn lời giải", ENDED: "Đã kết thúc" };
 let saveTimer;
-let lastAutoCheck = 0;
+let submittingCheck = false, checkPollGeneration = 0;
 let generation = 0;
 let mutating = 0;
-let autoTimer;
 let exercisePicker=null,pickerRequest=0;
 const exerciseSearchKey=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d").replace(/Đ/g,"D").toLocaleLowerCase();
 function pickerRows(items,query=""){
   const words=exerciseSearchKey(query).trim().split(/\s+/).filter(Boolean);
   const matches=items.filter(e=>{const text=exerciseSearchKey(`${e.id} ${e.title}`);return words.every(word=>text.includes(word));});
-  return {count:matches.length,html:matches.map(e=>`<div class="history-entry"><strong>${esc(e.id)}</strong><div>${esc(e.title)}</div>${btn("Dùng starter", "classroom-select-exercise", "btn-primary btn-sm", `data-id="${esc(e.id)}"`)}</div>`).join("")||'<p class="empty-slim">Không tìm thấy bài phù hợp. Thử mã bài hoặc tên khác.</p>'};
+  return {count:matches.length,html:matches.map(e=>`<div class="history-entry"><strong>${esc(e.id)}</strong><div>${esc(e.title)}</div>${btn("Chọn code lỗi", "classroom-select-exercise", "btn-primary btn-sm", `data-id="${esc(e.id)}"`)}</div>`).join("")||'<p class="empty-slim">Không tìm thấy bài phù hợp. Thử mã bài hoặc tên khác.</p>'};
 }
 function filterExercisePicker(query){
   if(!exercisePicker||exercisePicker.token!==state.token||exercisePicker.roomId!==state.room?.roomId)return;
@@ -60,8 +61,7 @@ function verdict(c) {
 }
 function resultPanel(c) {
   if (!c?.id) return "";
-  const r = c.result || {};
-  return `<div class="notice-box ${r.verdict === "ACCEPTED" ? "" : "warn"}"><strong>${esc(verdict(c))}</strong><p>${esc(r.feedback || "Kết quả sẽ cập nhật khi dịch vụ chấm hoàn tất.")}</p>${r.score !== undefined ? `<small>${esc(r.score)}/${esc(r.maxScore)} điểm · ${esc(r.passed)}/${esc(r.total)} testcase · ${esc(r.durationMs)} ms</small>` : ""}</div>`;
+  return `<div class="meeting-terminal meeting-submission-result"><div class="meeting-terminal-head"><strong>${esc(checkSummary(c).text)}</strong></div><div class="classroom-result-body">${checkDetails(c)}</div></div>`;
 }
 function historyChecks(checks) {
   return checks?.length ? `<div class="history-list">${checks.map(c => `<div class="history-entry"><strong>v${c.branchVersion}</strong><div>${esc(verdict(c))}<small>${dateTime(c.createdAt)}</small></div>${btn("Xem bản nộp", "classroom-check-detail", "btn-soft btn-sm", `data-id="${esc(c.id)}"`)}</div>`).join("")}</div>` : `<p class="empty-slim">Chưa có lượt kiểm tra.</p>`;
@@ -88,26 +88,12 @@ export async function loadClassroom() {
   if (state.room?.roomId !== roomId || state.token !== token || mutating || generation !== started) return;
   const changed = JSON.stringify(state.classroom) !== JSON.stringify(response.classroom);
   if(state.classroomRoomId!==roomId) {state.meetingView="";state.meetingPanel="";state.meetingSearch={};state.meetingQuery="";state.meetingFilter="";state.meetingGridPage=0;state.callRoster=[];}
+  notifyCheckResult(myBranch()?.latestCheck, response.classroom?.branches?.find(b => b.userId === state.identity?.userId)?.latestCheck);
   state.classroom = response.classroom;
   state.classroomRoomId = roomId;
   state.classroomError = "";
-  scheduleAutoCheck();
   if (changed && state.page === "room") render();
 }
-function scheduleAutoCheck() {
-  const b = myBranch(), c = state.classroom;
-  if (autoTimer || !b || c.phase !== "BRANCHING" || state.classroomAutoCheck === false || draft("branch", b).dirty ||
-      ["QUEUED", "RUNNING"].includes(b.latestCheck?.status) || (b.latestCheck?.id && !b.resultStale)) return;
-  const key = draftKey("branch", c.round);
-  autoTimer = setTimeout(async () => {
-    autoTimer = null;
-    if (!state.identity || !state.room || state.classroom?.phase !== "BRANCHING" || key !== draftKey("branch", state.classroom.round) || state.classroomAutoCheck === false) return;
-    const current = myBranch();
-    if (!current || draft("branch", current).dirty || ["QUEUED", "RUNNING"].includes(current.latestCheck?.status) || (current.latestCheck?.id && !current.resultStale)) return;
-    try { await runCheck(); } catch(e) { fail(e); }
-  }, Math.max(1500, 5000 - (Date.now() - lastAutoCheck)));
-}
-
 export function renderClassroom(chat, members) {
   const c = state.classroom;
   if (!c || state.classroomRoomId !== state.room.roomId)
@@ -116,10 +102,10 @@ export function renderClassroom(chat, members) {
   const active = !["WAITING", "ENDED"].includes(c.phase);
   const control = owner ? `<div class="tool-row">
     ${c.phase === "WAITING" ? btn("Bắt đầu giảng bài", "classroom-action", "btn-primary", 'data-op="START"') : ""}
-    ${c.phase === "LECTURE" ? `${btn("Chọn code", "classroom-pick-exercise", "btn-soft")}${btn("Bắt đầu làm", "classroom-action", "btn-primary", 'data-op="FORK"')}` : ""}
+    ${c.phase === "LECTURE" ? `${btn("Chọn bài lỗi đã lưu", "classroom-debug-pick", "btn-soft")}${btn("Soạn bài lỗi", "classroom-debug-open", "btn-soft")}${btn("Bắt đầu sửa lỗi", "classroom-action", "btn-primary", `data-op="FORK" ${c.exercise?.id?"":"disabled"}`)}` : ""}
     ${c.phase === "BRANCHING" ? btn("Dừng sửa và chọn lời giải", "classroom-action", "btn-primary", 'data-op="FREEZE"') : ""}
     ${c.phase === "MERGING" ? btn("Cho học sinh sửa tiếp", "classroom-action", "btn-soft", 'data-op="RESUME"') : ""}
-    ${active ? btn("Kết thúc bài làm", "classroom-action", "btn-danger", 'data-op="END"') : ""}
+    ${c.exercise?.id?.startsWith("DEBUG_SNAPSHOT_") ? btn("Xem đáp án bài sửa lỗi", "classroom-debug-lesson", "btn-soft") : ""}${active ? btn("Kết thúc bài làm", "classroom-action", "btn-danger", 'data-op="END"') : ""}
     ${c.phase === "ENDED" ? btn("Tạo phiên học tiếp theo", "classroom-action", "btn-primary", 'data-op="NEW_SESSION"') : ""}
   </div>` : "";
   const b = myBranch();
@@ -135,7 +121,8 @@ async function sendAction(action, data = {}) {
   try {
     const response = await api("/api/classroom", { method: "POST", body: { action, expectedPhase: c.phase, round: c.round, expectedVersion: state.room.version, ...data } });
     if (state.token !== token || state.room?.roomId !== roomId) throw new Error("Bạn đã rời phiên làm việc này. Nháp được giữ trong trình duyệt.");
-    state.classroom = response.classroom;
+    notifyCheckResult(myBranch()?.latestCheck, response.classroom?.branches?.find(b => b.userId === state.identity?.userId)?.latestCheck);
+  state.classroom = response.classroom;
     const r = await api("/api/rooms/current");
     if (state.token === token && state.room?.roomId === roomId) state.room = r.room;
     render();return response.classroom;
@@ -158,10 +145,38 @@ async function save(kind) {
   } finally {d.saving = false;render();} })();
   return d.pendingSave;
 }
+function notifyCheckResult(previous, next) {
+  if (!next?.id || previous?.id !== next.id || !checkSummary(previous).pending || checkSummary(next).pending) return;
+  const result = next.result || {}, summary = checkSummary(next);
+  toast(`Bản nộp v${next.branchVersion ?? "?"}: ${summary.text}${result.total !== undefined ? ` · ${result.passed}/${result.total} testcase` : ""}`, summary.tone === "green" ? "success" : summary.tone === "red" ? "error" : "info");
+}
+function pollClassroomCheck(check) {
+  const pollGeneration = ++checkPollGeneration, token = state.token, roomId = state.room?.roomId, round = state.classroom?.round;
+  let failures = 0;
+  const poll = async () => {
+    if (pollGeneration !== checkPollGeneration || state.token !== token || state.room?.roomId !== roomId || state.classroom?.round !== round) return;
+    try {
+      await loadClassroom(); failures = 0;
+      const latest = myBranch()?.latestCheck;
+      if (latest?.id !== check.id || !checkSummary(latest).pending) return;
+    } catch (_) {
+      if (++failures >= 3) { toast("Chưa cập nhật được kết quả. Bấm Cập nhật kết quả hoặc kiểm tra kết nối server.", "error"); return; }
+    }
+    setTimeout(poll, 1200);
+  };
+  setTimeout(poll, 600);
+}
 async function runCheck() {
+  if (submittingCheck) return;
+  if (checkSummary(myBranch()?.latestCheck).pending) { toast("Bản nộp trước đang được chấm. Vui lòng chờ kết quả.", "info"); return; }
+  submittingCheck = true;
+  try {
   if (!(await save("branch"))) return;
   await sendAction("BRANCH_CHECK", { expectedVersion: myBranch().version });
-  lastAutoCheck = Date.now();
+  const check = myBranch()?.latestCheck;
+  if (checkSummary(check).pending) { toast("Đã nhận bài. Kết quả chấm sẽ tự cập nhật.", "info"); pollClassroomCheck(check); }
+  else if(check?.id) notifyCheckResult({id:check.id,status:"QUEUED"},check);
+  } finally { submittingCheck = false; }
 }
 export function classroomInput(el) {
   if(el.dataset?.meetingSearch){state.meetingSearch={...state.meetingSearch,[el.dataset.meetingSearch]:el.value};render();return;}
@@ -186,13 +201,13 @@ export function classroomInput(el) {
     saveTimer = setTimeout(async () => {
       if (!state.identity || !state.room || !state.classroom || scope !== draftKey("branch", state.classroom.round) || state.classroom.phase !== "BRANCHING") return;
       try {
-        const saved = await save("branch");
-        if (saved && state.classroomAutoCheck !== false && Date.now() - lastAutoCheck > 5000 && !["QUEUED", "RUNNING"].includes(myBranch()?.latestCheck?.status)) await runCheck();
+        await save("branch");
       } catch (e) { fail(e); }
     }, 1200);
   }
 }
 export async function classroomClick(action, d) {
+  if(await debugLessonClick(action,d,{sendAction,hasDirtyMaster:()=>draft("master",{code:state.room.code,version:state.room.version}).dirty}))return;
   switch (action) {
     case "classroom-view": state.meetingView=d.view;state.roomTab="code";render();break;
     case "classroom-panel": state.meetingPanel=state.meetingPanel===d.panel?"":d.panel;render();break;
@@ -230,7 +245,7 @@ export async function classroomClick(action, d) {
     case "classroom-exercise-clear":{const input=document.getElementById("classroom-exercise-query");if(input){input.value="";filterExercisePicker("");input.focus();}break;}
     case "classroom-select-exercise":
       if (draft("master", {code:state.room.code, version:state.room.version}).dirty) throw new Error("Master có nháp chưa lưu. Lưu hoặc chọn dùng bản server trước khi đổi bài.");
-      if (!confirm("Nạp starter của bài này vào Master? Phiên bản Master hiện tại được giữ trong lịch sử.")) return;
+      if (!confirm("Nạp code lỗi của bài này vào Master? Phiên bản Master hiện tại được giữ trong lịch sử.")) return;
       await sendAction("SELECT_EXERCISE", { exerciseId: d.id });state.meetingView="master";render();document.getElementById("active-modal")?.remove();break;
     case "classroom-preview": {
       const r = await api(`/api/classroom/branches/${encodeURIComponent(d.userId)}?round=${Number(d.round || state.classroom.round)}`), b = r.branch;

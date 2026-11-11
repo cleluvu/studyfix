@@ -19,7 +19,7 @@ function walk(dir, base = dir, out = []) {
 
 const files = walk(staticDir).sort();
 const importRe = /^import\s*\{([^}]*)\}\s*from\s*"([^"]+)";/gm;
-const exportRe = /^export\s+(?:async\s+function|function|const)\s+([A-Za-z0-9_$]+)/gm;
+const exportRe = /^export\s+(?:async\s+function|function|const|class)\s+([A-Za-z0-9_$]+)/gm;
 
 const exportsByFile = {};
 const importsByFile = {};

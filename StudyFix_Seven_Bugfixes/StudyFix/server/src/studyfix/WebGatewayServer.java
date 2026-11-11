@@ -34,6 +34,7 @@ public final class WebGatewayServer implements AutoCloseable {
     private static final int MAX_BODY_BYTES = 128 * 1024;
     private final long sessionTtlMillis = Math.max(1000,Long.getLong("studyfix.web.sessionTimeoutMillis",TimeUnit.MINUTES.toMillis(2)));
     private static final Set<String> ASSIGNMENT_TYPES = Set.of(
+            "WA_SOURCES","WA_TIMELINE","WA_CREATE","WA_PROGRESS","WA_CONTROL","WA_OPEN","WA_SUBMIT","WA_RUN","WA_RESULT","WA_HISTORY",
             "EXAM_CONFIG","EXAM_STATUS","EXAM_EVENT","EXAM_MONITOR","EXAM_HISTORY","EXAM_SNAPSHOT",
             "EXAMBANK_LIST","EXAMBANK_SOURCES","EXAMBANK_GET","EXAMBANK_PREVIEW","EXAMBANK_SAVE","EXAMBANK_APPROVE","EXAMBANK_ARCHIVE","EXAMBANK_CLONE","EXAMBANK_EXPORT","EXAMBANK_IMPORT_COMMIT",
             "OJ_PUBLISH_BATCH","OJ_STATUS","OJ_PUBLISH","BUILDER_STATUS","BUILDER_REVIEWERS","BUILDER_REVIEW_LIST","BUILDER_REVIEW_GET","BUILDER_REVIEW_DECIDE","BUILDER_EXPORT","BUILDER_REVIEW","BUILDER_PUBLISH","BUILDER_ARCHIVE","BUILDER_TEST_IMPORT","BUILDER_TEST_GENERATE","BUILDER_VALIDATE","BUILDER_EXPECTED","BUILDER_COMPILE","BUILDER_TEMPLATE_IMPORT","BUILDER_ADVANCE","BUILDER_ASSETS","BUILDER_CAPABILITIES","BUILDER_LIST","BUILDER_GET","BUILDER_CREATE","BUILDER_SAVE","BUILDER_HISTORY","BUILDER_RESTORE","BUILDER_DELETE_DRAFT","BUILDER_SUGGEST_CODE",
@@ -104,7 +105,10 @@ public final class WebGatewayServer implements AutoCloseable {
                 return map("type","PRESENCE","roomId",room,"connections",managed!=null&&managed.isOwner(s.identity)?presence.students(room):List.of(),"joinRequests",core.store().management()==null?List.of():new ClassAdmission(core.store().management()).pending(s.identity.userId()),"examSnapshot",exam);
             }
         });
-        classroom = new ClassroomService(core, assignments::classroomExercise, sandbox);
+        classroom = new ClassroomService(core, assignments::classroomExercise, sandbox, new DebugLessonService.Bank() {
+            public List<Map<String,Object>> list(Identity who) throws java.sql.SQLException { return assignments.classroomDebugSources(who); }
+            public studyfix.assignment.model.Exercise get(Identity who,String id) throws java.sql.SQLException { return assignments.classroomDebugSource(who,id); }
+        });
         scheduler.scheduleWithFixedDelay(this::cleanup, 1, 1, TimeUnit.SECONDS);
     }
 
@@ -278,7 +282,7 @@ public final class WebGatewayServer implements AutoCloseable {
             Map<String,Object> preview;try{preview=assignments.ojImports().preview(s.identity,bytes);}catch(studyfix.assignment.persistence.ProblemBuilderRepository.Failure|IOException|IllegalArgumentException invalid){throw new ApiException(400,"INVALID_OJ_PACKAGE","Gói OJ không hợp lệ: "+invalid.getMessage());}json(ex,200,map("ok",true,"data",preview));return;
         }
         if(path.equals("/api/oj/import/commit")&&method.equals("POST")){
-            AdminManagement.requireAdmin(s.identity);Map<String,Object> request=readBody(ex);json(ex,200,map("ok",true,"data",assignments.ojImports().commit(s.identity,text(request,"previewId",""),text(request,"sha256",""))));return;
+            AdminManagement.requireAdmin(s.identity);Map<String,Object> request=readBody(ex);json(ex,200,map("ok",true,"data",assignments.ojImports().commit(s.identity,text(request,"previewId",""),text(request,"sha256",""),text(request,"bankScope","PRACTICE"))));return;
         }
         if(path.equals("/api/exam-bank/import")&&method.equals("POST")){
             if(s.identity.role()!=Identity.Role.TEACHER)throw new ApiException(403,"FORBIDDEN","Teacher only");
@@ -297,6 +301,32 @@ public final class WebGatewayServer implements AutoCloseable {
             try{var asset=assignments.problemBuilder().upload(s.identity,path.substring("/api/problem-builder/uploads/".length()),queryText(ex.getRequestURI(),"name"),bytes);json(ex,200,map("ok",true,"asset",asset));return;}catch(studyfix.assignment.persistence.ProblemBuilderRepository.Failure e){throw new ApiException(e.code.equals("FORBIDDEN")?403:e.code.equals("NOT_FOUND")?404:400,e.code,e.getMessage());}
         }
         if (path.equals("/api/rooms/current/command") && method.equals("POST")) { roomCommand(ex, s); return; }
+        if(path.equals("/api/debug-library/sources") && method.equals("GET")){json(ex,200,map("ok",true,"sources",classroom.debugLibrary().sources(s.identity)));return;}
+        if(path.startsWith("/api/debug-library/source/") && method.equals("GET")){json(ex,200,map("ok",true,"source",classroom.debugLibrary().source(s.identity,path.substring("/api/debug-library/source/".length()))));return;}
+        if(path.equals("/api/debug-library")){
+            if(method.equals("GET")){json(ex,200,map("ok",true,"items",classroom.debugLibrary().list(s.identity)));return;}
+            if(method.equals("POST")){json(ex,202,map("ok",true,"item",classroom.debugLibrary().save(s.identity,"",readBody(ex))));return;}
+        }
+        if(path.startsWith("/api/debug-library/")){
+            String id=path.substring("/api/debug-library/".length());
+            if(method.equals("GET")){json(ex,200,map("ok",true,"item",classroom.debugLibrary().get(s.identity,id)));return;}
+            if(method.equals("POST")){Map<String,Object> request=readBody(ex);if("DELETE".equals(request.get("action"))){classroom.debugLibrary().delete(s.identity,id,AssignmentJson.number(request,"expectedVersion",-1));json(ex,200,map("ok",true));}else json(ex,202,map("ok",true,"item",classroom.debugLibrary().save(s.identity,id,request)));return;}
+        }
+        if(path.equals("/api/classroom/debug/sources") && method.equals("GET")) {
+            json(ex,200,map("ok",true,"sources",classroom.debugSources(requireCurrentRoom(s),core.clients.get(s.coreSessionId)))); return;
+        }
+        if(path.startsWith("/api/classroom/debug/source/") && method.equals("GET")) {
+            json(ex,200,map("ok",true,"source",classroom.debugSource(requireCurrentRoom(s),core.clients.get(s.coreSessionId),path.substring("/api/classroom/debug/source/".length())))); return;
+        }
+        if(path.equals("/api/classroom/debug/previews") && method.equals("GET")) {
+            json(ex,200,map("ok",true,"previews",classroom.debugPreviews(requireCurrentRoom(s),core.clients.get(s.coreSessionId)))); return;
+        }
+        if(path.equals("/api/classroom/debug/previews") && method.equals("POST")) {
+            json(ex,202,map("ok",true,"preview",classroom.debugPreview(requireCurrentRoom(s),core.clients.get(s.coreSessionId),readBody(ex)))); return;
+        }
+        if(path.startsWith("/api/classroom/debug/previews/") && method.equals("GET")) {
+            json(ex,200,map("ok",true,"preview",classroom.debugStatus(requireCurrentRoom(s),core.clients.get(s.coreSessionId),path.substring("/api/classroom/debug/previews/".length())))); return;
+        }
         if (path.equals("/api/classroom") && (method.equals("GET") || method.equals("POST"))) {
             Room room = requireCurrentRoom(s);
             ClientHandler client = core.clients.get(s.coreSessionId);
@@ -554,7 +584,7 @@ public final class WebGatewayServer implements AutoCloseable {
         Map<String,Object> body = readBody(ex);
         String type = text(body, "type", "").toUpperCase(Locale.ROOT);
         if (!ASSIGNMENT_TYPES.contains(type) && !studyfix.assignment.service.ExamOrganizationService.TYPES.contains(type)) throw new ApiException(400, "UNKNOWN_ASSIGNMENT_ACTION", "Nghiệp vụ bài tập không hợp lệ.");
-        Room room=(type.startsWith("EO_")||((type.startsWith("CONTEST_")||type.startsWith("EXAM_")||type.equals("LEADERBOARD_GET"))&&currentRoomId(s).isBlank())||type.startsWith("EXAMBANK_")||type.startsWith("PRACTICE_")||type.startsWith("BANK_")||type.startsWith("OJ_")||type.startsWith("BUILDER_")||type.equals("CATALOG_CREATE"))?null:requireCurrentRoom(s);
+        Room room=(type.startsWith("WA_")||type.startsWith("EO_")||((type.startsWith("CONTEST_")||type.startsWith("EXAM_")||type.equals("LEADERBOARD_GET"))&&currentRoomId(s).isBlank())||type.startsWith("EXAMBANK_")||type.startsWith("PRACTICE_")||type.startsWith("BANK_")||type.startsWith("OJ_")||type.startsWith("BUILDER_")||type.equals("CATALOG_CREATE"))?null:requireCurrentRoom(s);
         Map<String,Object> request = new LinkedHashMap<>(body);
         request.keySet().removeAll(Set.of("sessionId", "roomId", "requestId"));
         request.put("type", type); request.put("sessionId", s.coreSessionId);
@@ -787,7 +817,7 @@ public final class WebGatewayServer implements AutoCloseable {
     private static void securityHeaders(Headers h) {
         h.set("X-Content-Type-Options", "nosniff"); h.set("X-Frame-Options", "DENY");
         h.set("Referrer-Policy", "same-origin"); h.set("Permissions-Policy", "camera=(self), microphone=(self), geolocation=()");
-        h.set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+        h.set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:18765; worker-src 'self' blob:; media-src 'self' blob:; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     }
     private static void corsPreflight(HttpExchange ex) throws IOException {
         String origin = ex.getRequestHeaders().getFirst("Origin");

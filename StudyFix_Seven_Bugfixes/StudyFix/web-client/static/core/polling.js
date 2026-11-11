@@ -194,7 +194,7 @@ export async function loadPageData() {
   }
   try {await loadChat();}catch(e){console.warn("Chat sync failed",e);}
   if (state.page === "overview" || state.page === "room") {
-    await loadAssignments();
+    if(state.page!=="room")await loadAssignments();
     if (state.page === "room") {
       try { await loadClassroom(); } catch(e) { state.classroomError = e.message; }
     }

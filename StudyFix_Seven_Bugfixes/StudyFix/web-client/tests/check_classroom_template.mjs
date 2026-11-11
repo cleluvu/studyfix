@@ -1,13 +1,24 @@
-import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
-const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
+globalThis.sessionStorage={getItem:()=>null};
 globalThis.document={title:'StudyFix',activeElement:null,querySelector:()=>null,querySelectorAll:()=>[],getElementById:()=>null,addEventListener(){}};
-const {state}=await import('../static/core/state.js');const {renderMeeting}=await import('../static/features/classroom/meeting-view.js');
-const {esc,initial,dateTime}=await import('../static/shared/format.js');const {btn}=await import('../static/ui/components.js');
-const source=fs.readFileSync(new URL('../../server/build-classroom-template/meeting-view.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').replace('export function renderMeeting','function renderMeeting');
-const oldRender=new Function('state','esc','initial','dateTime','btn','unreadChatCount','renderStudentExamStatus','renderExamMonitor','classroomExamId',source+'\nreturn renderMeeting;')(state,esc,initial,dateTime,btn,()=>0,()=>'',()=>'',()=>null);
-function controls(html){return [...html.matchAll(/<button\b[^>]*>/g)].map(([tag])=>[...tag.matchAll(/\b(data-[\w-]+|disabled|readonly)(?:="([^"]*)")?/g)].map(([,k,v])=>[k,v||'']).sort(([a],[b])=>a.localeCompare(b)).map(a=>a.join('=')).join(';')).filter(t=>t.includes('data-action=')).filter(t=>!t.includes('data-action=navigate;data-page=overview'));}
-let checks=0;for(const owner of [true,false])for(const phase of ['WAITING','LECTURE','BRANCHING','MERGING','ENDED'])for(const panel of ['','chat','people']){
-state.identity={userId:owner?'t':'s',role:owner?'TEACHER':'STUDENT',displayName:'Giảng viên'};state.room={roomId:'1',roomCode:'JAVA-K23',version:1,code:'public class Main {}',members:[{userId:'t',peerId:'pt',displayName:'Teacher',isTeacherOwner:true,role:'TEACHER',online:true},{userId:'s',peerId:'ps',displayName:'Sinh viên',role:'STUDENT',online:true}]};state.peerId=owner?'pt':'ps';state.meetingPanel=panel;state.meetingView='master';state.callRoster=[];state.chatItems=[];state.callJoined=false;const branch={userId:'s',version:1,baseVersion:1,code:'code',displayName:'Student',username:'student',online:true};const control=owner?'<button data-action="classroom-action" data-op="END">End</button>':'';const args={c:{isOwner:owner,phase,round:1,branches:[branch],exercise:{id:'JAVA01',title:'Bài tập'}},md:{code:'public class Main {}',dirty:true,baseVersion:1},b:owner?null:branch,branchDraft:{code:'code',dirty:true,baseVersion:1},control,chat:'<form id="chat-form"></form>',members:'<div class="member-list"></div>',history:'History',recovery:''};const old=controls(oldRender(args)),now=controls(renderMeeting(args));for(const action of new Set(old))assert.ok(now.includes(action),`${owner}/${phase}/${panel}: missing ${action}`);for(const id of ['classroom-master',...(owner?[]:['classroom-branch'])])assert.ok(renderMeeting(args).includes(`id="${id}"`));checks++;}
-const baseline=JSON.parse(fs.readFileSync(new URL('../../server/build-classroom-template/logic-baseline.json',import.meta.url),'utf8'));for(const [file,hash] of Object.entries(baseline)){const url=new URL('../../'+file.replaceAll('\\','/'),import.meta.url);assert.equal(crypto.createHash('sha256').update(fs.readFileSync(url)).digest('hex'),hash,`Business logic changed: ${file}`);checks++;}console.log(`Classroom template: ${checks} checks PASS (all prior button contracts across 30 states and unchanged server/media/classroom logic).`);
+const {state}=await import('../static/core/state.js');
+const {renderMeeting}=await import('../static/features/classroom/meeting-view.js');
+let checks=0;
+for(const owner of [true,false])for(const phase of ['WAITING','LECTURE','BRANCHING','MERGING','ENDED'])for(const panel of ['','chat','people','assignments','workspace','history']){
+ state.identity={userId:owner?'t':'s',role:owner?'TEACHER':'STUDENT'};
+ state.room={roomId:'1',version:1,code:'class Main {}',members:[],history:[]};
+ state.meetingPanel=panel;state.meetingView='master';state.callRoster=[];state.chatItems=[];
+ // Even old room assignments must never appear in the simplified classroom.
+ state.assignments=[{id:'old',exerciseTitle:'LEGACY_ASSIGNMENT_SENTINEL'}];
+ const branch={userId:'s',version:1,baseVersion:1,code:'code',displayName:'Student',latestCheck:{id:'check',status:'DONE',result:{verdict:'ACCEPTED'}}};
+ const args={c:{isOwner:owner,phase,round:1,branches:[branch],exercise:{id:'DBG',title:'Debug'}},md:{code:'class Main {}'},b:owner?null:branch,branchDraft:{code:'code',baseVersion:1},control:'',chat:'CHAT',members:'MEMBERS',history:'HISTORY',recovery:''};
+ const html=renderMeeting(args);
+ assert.ok(!html.includes('room-assignments')&&!html.includes('open-assignment')&&!html.includes('assignment-form')&&!html.includes('LEGACY_ASSIGNMENT_SENTINEL'));
+ assert.ok(html.includes('data-panel="assignments"')&&html.includes('id="classroom-master"'));
+ if(panel==='assignments')assert.equal(html.includes('data-action="classroom-debug-pick"'),owner&&phase==='LECTURE');
+ if(!owner){assert.ok(html.includes('AC · Đúng'));assert.equal(/id="classroom-branch"[^>]*readonly/.test(html),phase!=='BRANCHING');assert.equal(html.includes('data-action="classroom-run-check"'),phase==='BRANCHING');}
+ assert.ok(!html.includes('classroom-auto-check'));
+ state.meetingView='assignments';assert.ok(!renderMeeting(args).includes('meeting-assignment-workspace'));
+ checks++;
+}
+console.log('Classroom template: '+checks+' states PASS (teacher/student, all phases and panels; legacy assignment UI excluded).');

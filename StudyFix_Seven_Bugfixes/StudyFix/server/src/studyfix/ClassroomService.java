@@ -19,12 +19,22 @@ final class ClassroomService implements AutoCloseable {
     private final ClassroomRepository repo;
     private final Exercises exercises;
     private final GradingSandbox sandbox;
+    private final DebugLessonService debugLessons;
+    private final DebugLibraryService debugLibrary;
     private final ThreadPoolExecutor grader;
     private final ConcurrentMap<String,Check> pending = new ConcurrentHashMap<>();
     private final AtomicBoolean closed = new AtomicBoolean();
 
     ClassroomService(Server core, Exercises exercises, GradingSandbox sandbox) {
+        this(core, exercises, sandbox, new DebugLessonService.Bank() {
+            public List<Map<String,Object>> list(Identity who) { return List.of(); }
+            public Exercise get(Identity who,String id) { throw new IllegalArgumentException("Ngân hàng chưa kết nối."); }
+        });
+    }
+    ClassroomService(Server core, Exercises exercises, GradingSandbox sandbox, DebugLessonService.Bank bank) {
         this.core=core;this.repo=new ClassroomRepository(core.store());this.exercises=exercises;this.sandbox=sandbox;
+        this.debugLessons=new DebugLessonService(core.store(),bank,sandbox);
+        this.debugLibrary=new DebugLibraryService(core.store(),bank,sandbox);
         grader=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue<>(32),r->{Thread t=new Thread(r,"studyfix-classroom-grader");t.setDaemon(true);return t;});
     }
     Map<String,Object> view(Room room, ClientHandler client) throws SQLException {
@@ -53,7 +63,7 @@ final class ClassroomService implements AutoCloseable {
                         "latestCheck",latest,"resultStale",!checks.isEmpty()&&checks.getFirst().branchVersion()!=b.version(),
                         "checks",owner?List.of():checks.stream().map(x->checkMap(x,false)).toList()));
             }
-            Exercise exercise=s.exerciseId().isBlank()?null:exercises.get(s.exerciseId());
+            Exercise exercise=s.exerciseId().isBlank()?null:requireExercise(s.exerciseId());
             Map<String,Object> result=mapOf("phase",s.phase(),"round",s.round(),"exerciseId",s.exerciseId(),"exercise",exercise==null?Map.of():exercise.publicView(),
                     "baseVersion",s.baseVersion(),"masterVersion",room.snapshot().version(),"updatedAt",s.updatedAt(),"isOwner",owner,"branches",rows,
                     "events",owner?repo.report(s.room()):List.of(),"chat",repo.chat(s.room()),"queueSize",grader.getQueue().size());
@@ -114,15 +124,23 @@ final class ClassroomService implements AutoCloseable {
                     phase(s,"ENDED");idle(room);
                     next=new Session(s.room(),"WAITING",s.round(),"",room.snapshot().version(),now);
                 }
-                case "MASTER_SAVE", "SELECT_EXERCISE" -> {
+                case "MASTER_SAVE", "SELECT_EXERCISE", "SELECT_DEBUG", "SELECT_LIBRARY" -> {
                     phase(s,"LECTURE");idle(room);
                     long expected=masterVersion(room,body);
                     String code;
                     String exerciseId=s.exerciseId();
-                    if(action.equals("SELECT_EXERCISE")) {
+                    if(action.equals("SELECT_LIBRARY")) {
+                        String id=debugLibrary.copyToRoom(who,text(body,"libraryId",""),s.room(),number(body,"libraryVersion",-1));
+                        Exercise e=requireExercise(id);exerciseId=id;code=e.starterCode();detail=e.title();
+                    } else if(action.equals("SELECT_DEBUG")) {
+                        String id=text(body,"previewId","");
+                        debugLessons.owned(s.room(),who,id);
+                        Exercise e=requireExercise(id); exerciseId=id; code=e.starterCode(); detail=e.title();
+                    } else if(action.equals("SELECT_EXERCISE")) {
+                        if(text(body,"exerciseId","").startsWith("DEBUG_SNAPSHOT_"))throw new SecurityException("Dùng thao tác chọn bản sửa lỗi đã kiểm chứng.");
                         Exercise e=requireExercise(text(body,"exerciseId",""));exerciseId=e.id();code=e.starterCode();detail=e.title();
                     } else code=source(body);
-                    revision=revision(room,who,code,expected,action.equals("SELECT_EXERCISE")?"Chọn bài: "+detail:"Giáo viên lưu Master");
+                    revision=revision(room,who,code,expected,(action.equals("SELECT_EXERCISE")||action.equals("SELECT_DEBUG")||action.equals("SELECT_LIBRARY"))?"Chọn bài: "+detail:"Giáo viên lưu Master");
                     next=new Session(s.room(),"LECTURE",s.round(),exerciseId,revision.getVersion(),now);
                 }
                 case "FORK" -> {
@@ -198,9 +216,34 @@ final class ClassroomService implements AutoCloseable {
         return new Session(current.room(),current.phase(),round,current.exerciseId(),current.baseVersion(),current.updatedAt());
     }
     private Exercise requireExercise(String id) throws SQLException {
-        Exercise e=exercises.get(id);
+        Exercise e=id.startsWith("DEBUG_SNAPSHOT_")?debugLessons.exercise(id):exercises.get(id);
         if(e==null||e.mode()!=ExerciseMode.DEBUG_COLLAB)throw new IllegalArgumentException("Chọn một bài sửa lỗi DEBUG_COLLAB trong ngân hàng.");
         return e;
+    }
+    DebugLibraryService debugLibrary(){return debugLibrary;}
+    private static void debugOwner(Room room,ClientHandler client) {
+        member(room,client);
+        if(!room.isOwner(client.identity()))throw new SecurityException("Chỉ giáo viên chủ phòng được tạo và xem đáp án bài sửa lỗi.");
+    }
+    List<Map<String,Object>> debugSources(Room room,ClientHandler client) throws SQLException {
+        synchronized(room){debugOwner(room,client);}
+        return debugLessons.sources(client.identity());
+    }
+    List<Map<String,Object>> debugPreviews(Room room,ClientHandler client) throws SQLException {
+        synchronized(room){debugOwner(room,client);}
+        return debugLessons.recent(room.getRoomId(),client.identity());
+    }
+    Map<String,Object> debugSource(Room room,ClientHandler client,String id) throws SQLException {
+        synchronized(room){debugOwner(room,client);}
+        return debugLessons.source(client.identity(),id);
+    }
+    Map<String,Object> debugPreview(Room room,ClientHandler client,Map<String,Object> body) throws SQLException {
+        synchronized(room){debugOwner(room,client);phase(repo.session(room.getRoomId()),"LECTURE");}
+        return debugLessons.create(room.getRoomId(),client.identity(),body);
+    }
+    Map<String,Object> debugStatus(Room room,ClientHandler client,String id) throws SQLException {
+        synchronized(room){debugOwner(room,client);}
+        return debugLessons.status(room.getRoomId(),client.identity(),id);
     }
     private static void member(Room room, ClientHandler client) {
         if(client==null||!client.isConnected()||client.identity()==null||!room.isMember(client.getMemberId()))throw new SecurityException("Bạn chưa tham gia phòng học này.");
@@ -228,13 +271,31 @@ final class ClassroomService implements AutoCloseable {
         if(includeCode)out.put("code",c.code());
         return out;
     }
+    private static List<Map<String,Object>> classroomTestResults(GradingResult result,Exercise exercise) {
+        List<Map<String,Object>> out=new ArrayList<>();
+        for(int i=0;i<Math.min(result.publicTests().size(),exercise.tests().size());i++) {
+            Map<String,Object> raw=result.publicTests().get(i);
+            Exercise.TestCase test=exercise.tests().get(i);
+            boolean passed=Boolean.TRUE.equals(raw.get("passed"));
+            Map<String,Object> row=mapOf("index",i+1,"hidden",test.hidden(),"passed",passed,"durationMs",number(raw,"durationMs",0));
+            if(test.hidden())row.put("message",passed?"Test ẩn đạt":"Test ẩn không đạt");
+            else {
+                row.put("input",test.input().substring(0,Math.min(12000,test.input().length())));
+                row.put("expectedOutput",test.expected().substring(0,Math.min(12000,test.expected().length())));
+                row.put("message",text(raw,"message",passed?"Đạt":"Không đạt"));
+                if(raw.containsKey("actualOutput"))row.put("actualOutput",text(raw,"actualOutput",""));
+            }
+            out.add(row);
+        }
+        return out;
+    }
     private void grade(Check check,Exercise exercise) {
         try {
             if(closed.get())return;
             repo.result(check.id(),"RUNNING",Map.of());
             GradingResult r=sandbox.grade(check.id(),check.code(),exercise.tests(),100);
             if(!closed.get()) {
-                repo.result(check.id(),"DONE",mapOf("verdict",r.verdict(),"score",r.score(),"maxScore",r.maxScore(),"passed",r.passed(),"total",r.total(),"feedback",r.feedback(),"durationMs",r.durationMillis(),"publicTests",r.publicTests()));
+                repo.result(check.id(),"DONE",mapOf("verdict",r.verdict(),"score",r.score(),"maxScore",r.maxScore(),"passed",r.passed(),"total",r.total(),"feedback",r.feedback(),"durationMs",r.durationMillis(),"publicTests",classroomTestResults(r,exercise)));
                 Room room=core.rooms.get(check.room());
                 core.log("Kết quả nhánh phòng " + (room==null?check.room():room.getRoomCode()) + " [ID=" + check.room()
                         + "] userId=" + check.userId() + " vòng=" + check.round() + " nhánh v" + check.branchVersion()
@@ -247,6 +308,8 @@ final class ClassroomService implements AutoCloseable {
     }
     @Override public void close() {
         if(!closed.compareAndSet(false,true))return;
+        debugLibrary.close();
+        debugLessons.close();
         grader.shutdownNow();
         for(Check c:pending.values())try{repo.result(c.id(),"JUDGE_ERROR",mapOf("verdict","JUDGE_ERROR","feedback","Dịch vụ đã dừng. Hãy chạy kiểm tra lại."));}catch(SQLException e){core.log("Không lưu được trạng thái dừng chấm: "+e.getMessage());}
         try{grader.awaitTermination(5,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}

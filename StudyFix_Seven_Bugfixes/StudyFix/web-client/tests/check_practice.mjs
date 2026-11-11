@@ -31,7 +31,7 @@ await loadPageData();check(practice.items.length===2,"practice loads catalog wit
 const studentView=renderPractice();state.identity.role="TEACHER";
 const teacherView=renderPractice();
 check(!teacherView.includes('id="practice-status"')&&!teacherView.includes('<th>Kết quả</th>')&&teacherView.includes('Số lần dùng'),"Teacher catalog shows publication/usage instead of personal progress");
-check(teacherView.includes('data-action="practice-create"')&&!studentView.includes('data-action="practice-create"'),"only teachers see catalog creation control");
+check(teacherView.includes('data-view="create"')&&!studentView.includes('data-view="create"'),"only teachers see catalog creation control");
 check(studentView.includes('data-id="A"')&&teacherView.includes('data-id="A"')&&!studentView.includes('data-action="practice-bank-contest"'),"shared questions remain available while management controls are Teacher-only");
 check(teacherView.includes('class="bank-summary-cards"')&&teacherView.includes('class="bank-main-panel"'),"reference all-questions layout uses summary cards above full-width table");
 check(!teacherView.includes('class="bank-category-panel"')&&!teacherView.includes('role="tablist"')&&!teacherView.includes('Theo Week'),"Week/category rail and tabs removed");

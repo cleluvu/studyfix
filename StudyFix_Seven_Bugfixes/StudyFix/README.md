@@ -1,5 +1,8 @@
 # StudyFix
 
+**Bài sửa lỗi từ ngân hàng trong phòng học:** giáo viên chọn code chuẩn, tự tạo lỗi rồi lưu vào Danh sách bài lỗi để chuẩn bị trước buổi học; chọn nhanh bài đã lưu để giao vào Master/nhánh học sinh. Xem [hướng dẫn sử dụng và kiểm thử](docs/TAO_BAI_SUA_LOI_TU_NGAN_HANG_VI.md).
+
+
 **Kỳ thi trực tuyến:** giáo viên tạo kỳ thi, chọn học sinh và lên lịch; học sinh vào thi trên web. Danh sách học sinh nằm trong chi tiết kỳ thi; tiếp tục dùng Giám sát và Chấm thi & kết quả. Xem [luồng kỳ thi và hướng dẫn cập nhật backend](docs/KET_QUA_TRIEN_KHAI_TO_CHUC_THI_VI.md).
 
 StudyFix là ứng dụng học và thực hành Java theo nhóm. Giáo viên có thể tạo phòng, giảng trên code chung, tách bài làm riêng cho sinh viên, theo dõi kết quả rồi chọn một lời giải làm code chung mới. Người dùng cũng có thể luyện code cá nhân, làm bài được giao, tham gia cuộc thi, chat và chia sẻ màn hình.

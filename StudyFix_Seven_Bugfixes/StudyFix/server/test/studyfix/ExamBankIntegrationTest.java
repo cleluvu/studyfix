@@ -16,6 +16,12 @@ import static studyfix.assignment.protocol.AssignmentJson.*;
 
 /** Real HTTP, SQLite, auth and restart tests; all fixtures isolated under build/. */
 public final class ExamBankIntegrationTest {
+ static void migrationTests(Path learning,String current,String contest)throws Exception {
+  try(var c=java.sql.DriverManager.getConnection("jdbc:sqlite:"+learning)){try(var p=c.prepareStatement("INSERT INTO p3_exam_versions SELECT 'OLD_LEGACY',bank_id,0,1,'APPROVED',json_set(document_json,'$.title','Legacy source title'),created_at,updated_at FROM p3_exam_versions WHERE id=?")){p.setString(1,current);p.executeUpdate();}try(var p=c.prepareStatement("UPDATE p3_exam_contests SET version_id='OLD_LEGACY',config_json=json_remove(config_json,'$.examTitle','$.scoringMode') WHERE contest_id=?")){p.setString(1,contest);p.executeUpdate();}}
+  var repo=new studyfix.assignment.persistence.AssignmentRepository(learning);new studyfix.assignment.persistence.ExamBankRepository(repo);
+  try(var c=java.sql.DriverManager.getConnection("jdbc:sqlite:"+learning);var p=c.prepareStatement("SELECT COUNT(*) FROM p3_exam_versions WHERE bank_id=(SELECT bank_id FROM p3_exam_versions WHERE id=?)")){p.setString(1,current);try(var r=p.executeQuery()){r.next();check(r.getInt(1)==1,"migration physically deletes old exam definition");}}
+  var config=new studyfix.assignment.persistence.ExamBankRepository(repo).contestPolicy(contest);check("Legacy source title".equals(config.get("examTitle")),"migration preserves original contest metadata");
+ }
  static Map<String,Object> doc(List<Object> items){return mapOf("title","Đề kiểm tra Mảng","description","Two immutable questions","durationMinutes",90,"totalPoints",100,"items",items,"sourceWeeks",List.of(),"grading",mapOf("inherit",true,"showScore",false,"showPublicTests",false,"allowResubmit",false,"allowTemplate",false));}
  static Map<String,Object> item(String id,int points){return mapOf("exerciseId",id,"points",points);}
  static Map<String,Object> save(String base,String t,String code,Map<String,Object> doc)throws Exception{return obj(assign(base,t,"EXAMBANK_SAVE",mapOf("code",code,"document",doc)).get("exam"));}
@@ -45,10 +51,10 @@ public final class ExamBankIntegrationTest {
    Map<String,Object> saved=obj(assign(base,t,"EXAMBANK_SAVE",mapOf("code","EXAM_A","versionId",id,"expectedRevision",draft.get("revision"),"document",d)).get("exam"));
    check(send(base,t,"EXAMBANK_SAVE",mapOf("code","EXAM_A","versionId",id,"expectedRevision",draft.get("revision"),"document",d)).status()!=200,"optimistic concurrency rejects stale draft");
    Map<String,Object> approved=approve(base,t,saved);approvedId=id;check(approved.get("status").equals("APPROVED"),"approve valid exam");
-   check(send(base,t,"EXAMBANK_SAVE",mapOf("code","EXAM_A","versionId",id,"expectedRevision",approved.get("revision"),"document",d)).status()!=200,"approved definition immutable");
+   approved=obj(assign(base,t,"EXAMBANK_SAVE",mapOf("code","EXAM_A","versionId",id,"expectedRevision",approved.get("revision"),"document",d)).get("exam"));check(id.equals(approved.get("id"))&&approved.get("status").equals("DRAFT"),"approved exam updates in place and requires approval again");approved=approve(base,t,approved);
    String pub=stringify(assign(base,t,"EXAMBANK_PREVIEW",mapOf("versionId",id)));check(!pub.contains("SECRET_TEST")&&!pub.contains("referenceSolution")&&!pub.contains("grading")&&pub.contains("OLD_PUBLIC"),"preview allowlist excludes hidden tests and judge config");
-   Map<String,Object> clone=obj(assign(base,t,"EXAMBANK_CLONE",mapOf("versionId",id,"expectedRevision",approved.get("revision"))).get("exam"));check(number(clone,"version",0)==2&&clone.get("status").equals("DRAFT"),"new version creates editable draft");
-   check(number(assign(base,t,"EXAMBANK_LIST",mapOf("allVersions",true,"query","EXAM_A")),"total",0)==2,"version directory returns both versions");
+   check(send(base,t,"EXAMBANK_CLONE",mapOf("versionId",id,"expectedRevision",approved.get("revision"))).status()!=200,"old version creation API removed");
+   check(number(assign(base,t,"EXAMBANK_LIST",mapOf("allVersions",true,"query","EXAM_A")),"total",0)==1,"allVersions cannot expose multiple copies");
    check(number(assign(base,t,"EXAMBANK_LIST",mapOf("query","de kiem tra mang")),"total",0)>0,"accent insensitive search");
    check(number(assign(base,foreign,"EXAMBANK_LIST",Map.of()),"total",-1)==0,"scoped directory excludes foreign definitions");
    Map<String,Object> pack=exported(base,t,id);check(!stringify(pack).contains("SECRET_TEST")&&!stringify(pack).contains("OLD_PUBLIC"),"export contains references, no judge data");
@@ -65,7 +71,7 @@ public final class ExamBankIntegrationTest {
    check(preview(base,t,bytes,false,true).status()==200,"backup resolves published immutable question after a newer question revision exists");
    Map<String,Object> atomic=exported(base,t,id),fresh=object(stringify(map(list(atomic.get("exams")).getFirst()))),existing=object(stringify(fresh));fresh.put("code","ATOMIC_FRESH");existing.put("code","IMPORTED_EXAM");atomic.put("exams",List.of(fresh,existing));
    Response atomicPreview=preview(base,t,stringify(atomic).getBytes(StandardCharsets.UTF_8),false,true);check(atomicPreview.status()==200,"multi-exam import previews without writes");String atomicToken=text(obj(atomicPreview.body().get("data")),"previewId","");
-   Map<String,Object> imported=rows(assign(base,t,"EXAMBANK_LIST",mapOf("query","IMPORTED_EXAM")).get("exams")).getFirst();assign(base,t,"EXAMBANK_CLONE",mapOf("versionId",imported.get("id"),"expectedRevision",imported.get("revision")));
+   Map<String,Object> imported=rows(assign(base,t,"EXAMBANK_LIST",mapOf("query","IMPORTED_EXAM")).get("exams")).getFirst();assign(base,t,"EXAMBANK_SAVE",mapOf("versionId",imported.get("id"),"expectedRevision",imported.get("revision"),"code","IMPORTED_EXAM","document",d));
    check(send(base,t,"EXAMBANK_IMPORT_COMMIT",mapOf("previewId",atomicToken)).status()!=200,"changed bank invalidates import plan");check(number(assign(base,t,"EXAMBANK_LIST",mapOf("query","ATOMIC_FRESH")),"total",-1)==0,"late failure rolls back earlier new exam in same import transaction");
    call(base,"/api/rooms/current/command",t,mapOf("action","CREATE_ROOM","roomCode","EXAM_BANK_TEST"));join(base,s,"EXAM_BANK_TEST");
    List<Object> manyItems=new ArrayList<>();for(int n=0;n<21;n++){String qid="EB_BULK_"+n;assign(base,t,"CATALOG_CREATE",QuestionBankIntegrationTest.question(qid,"Bulk fixture "+n,"PUBLISHED"));manyItems.add(item(qid,1));}Map<String,Object> manyDoc=doc(manyItems);manyDoc.put("totalPoints",21);var many=approve(base,t,save(base,t,"OVER_20",manyDoc));String manyContest=text(assign(base,t,"CONTEST_CREATE",mapOf("title","More than twenty","durationMinutes",10,"examVersionId",many.get("id"))),"contestId","");check(rows(assign(base,s,"CONTEST_PROBLEMS_GET",mapOf("contestId",manyContest)).get("problems")).size()==21,"exam-bank contest retains all questions beyond old direct-creator limit");
@@ -76,9 +82,25 @@ public final class ExamBankIntegrationTest {
    check(send(base,s,"CONTEST_SUBMIT",mapOf("contestId",contestId,"exerciseId","EB_A","sourceCode","public class Main {}","idempotencyKey",UUID.randomUUID().toString())).status()!=200,"no-resubmit policy enforced on server");
    Map<String,Object> result=obj(assign(base,s,"CONTEST_SUBMISSION_RESULT",mapOf("submissionId",submission)).get("submission"));check(result.get("score")==null&&Boolean.TRUE.equals(result.get("scoreHidden")),"score withheld before contest ends");check(list(result.get("testResults")).isEmpty()&&result.get("passedTests")==null,"test result details withheld by policy");
    assign(base,t,"EXAMBANK_ARCHIVE",mapOf("versionId",id,"expectedRevision",approved.get("revision")));check(send(base,t,"CONTEST_CREATE",mapOf("title","Archived","durationMinutes",10,"examVersionId",id)).status()!=200,"archived exam cannot start new contest");check(rows(assign(base,s,"CONTEST_PROBLEMS_GET",mapOf("contestId",contestId)).get("problems")).size()==2,"archive leaves existing contest intact");
+   // Updating an exam already used by a contest must retain that contest's questions and scores.
+   var changed=object(stringify(d));changed.put("title","Updated current definition");changed.put("items",List.of(item("EB_B",100)));
+   var replacement=obj(assign(base,t,"EXAMBANK_SAVE",mapOf("versionId",id,"expectedRevision",get(base,t,id).get("revision"),"code","EXAM_A","document",changed)).get("exam"));
+   check(id.equals(replacement.get("id"))&&list(replacement.get("items")).size()==1,"save overwrites same exam row");
+   check(rows(assign(base,s,"CONTEST_PROBLEMS_GET",mapOf("contestId",contestId)).get("problems")).size()==2,"editing current exam keeps existing contest intact");
+   var updatePack=exported(base,t,id);var updatePreview=preview(base,t,stringify(updatePack).getBytes(StandardCharsets.UTF_8),false,true);assign(base,t,"EXAMBANK_IMPORT_COMMIT",mapOf("previewId",obj(updatePreview.body().get("data")).get("previewId")));
+   check(number(assign(base,t,"EXAMBANK_LIST",mapOf("query","EXAM_A","allVersions",true)),"total",0)==1&&id.equals(rows(assign(base,t,"EXAMBANK_LIST",mapOf("query","EXAM_A")).get("exams")).getFirst().get("id")),"duplicate import overwrites current exam without adding a row");
+   assign(base,t,"EXAMBANK_ARCHIVE",mapOf("versionId",id,"expectedRevision",get(base,t,id).get("revision")));
+   migrationTests(learning,id,contestId);
+   if(args.length>0&&args[0].equals("--question-bank-browser")){
+    var privateQuestion=QuestionBankIntegrationTest.question("SIMPLIFIED_PRIVATE","Private fixture","PUBLISHED");privateQuestion.put("bankScope","EXAM_PRIVATE");assign(base,t,"CATALOG_CREATE",privateQuestion);
+    String week=text(assign(base,t,"PRACTICE_WEEK_SAVE",mapOf("weekNo",1,"title","Java cơ bản")),"weekId","");assign(base,t,"PRACTICE_WEEK_ADD",mapOf("weekId",week,"exerciseIds",List.of("EB_B")));
+    var child=new ProcessBuilder("C:/Program Files/nodejs/node.exe",Path.of("../web-client/tests/question_bank_simplified_browser.cjs").toAbsolutePath().toString(),base).inheritIO().start();if(!child.waitFor(120,java.util.concurrent.TimeUnit.SECONDS)){child.destroyForcibly();throw new AssertionError("Question bank Chrome timeout");}check(child.exitValue()==0,"simplified question bank browser checks pass");
+   }
+   if(args.length>0&&args[0].equals("--single-browser")){var child=new ProcessBuilder("C:/Program Files/nodejs/node.exe",Path.of("../web-client/tests/single_exam_browser.cjs").toAbsolutePath().toString(),base).inheritIO().start();if(!child.waitFor(120,java.util.concurrent.TimeUnit.SECONDS)){child.destroyForcibly();throw new AssertionError("Single exam Chrome timeout");}check(child.exitValue()==0,"single exam browser checks pass");}
    if(args.length>0&&args[0].equals("--browser")){Files.writeString(tmp.resolve("browser.json"),stringify(mapOf("base",base,"directory",tmp.toAbsolutePath().toString())));System.out.println("BROWSER_FIXTURE "+tmp.resolve("browser.json").toAbsolutePath());Thread.sleep(20*60_000);}
   }
   try(Server core=new Server(0,db);AssignmentTcpServer assignments=new AssignmentTcpServer(core.gateway(),learning,0,32,1,"unused");WebGatewayServer web=new WebGatewayServer(core,assignments)){core.start();assignments.start();web.start();String base="http://127.0.0.1:"+web.port(),t=login(base,"teacher","Teacher123!");check(get(base,t,approvedId).get("status").equals("ARCHIVED"),"versions and state survive restart");}
   System.out.println("ExamBankIntegrationTest PASS: "+checks+" assertions, real HTTP/SQLite, permissions, immutable snapshots, scoring, import/export, policies and restart.");
  }
 }
+

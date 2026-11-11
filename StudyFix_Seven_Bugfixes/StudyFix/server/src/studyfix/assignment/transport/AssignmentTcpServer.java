@@ -28,6 +28,8 @@ public final class AssignmentTcpServer implements AutoCloseable {
  public studyfix.assignment.service.OjImportService ojImports(){return service.ojImports();}
  public studyfix.assignment.service.ProblemBuilderService problemBuilder(){return service.problemBuilder();}
  public studyfix.assignment.model.Exercise classroomExercise(String id) throws java.sql.SQLException { return service.classroomExercise(id); }
+ public List<Map<String,Object>> classroomDebugSources(studyfix.Identity who)throws java.sql.SQLException{return service.classroomDebugSources(who);}
+ public studyfix.assignment.model.Exercise classroomDebugSource(studyfix.Identity who,String id)throws java.sql.SQLException{return service.classroomDebugSource(who,id);}
  public void requirePublishedQuestion(String id)throws java.sql.SQLException{service.requirePublishedQuestion(id);}
  public synchronized void start(){if(acceptThread!=null)throw new IllegalStateException("Assignment listener đã chạy");acceptThread=new Thread(this::acceptLoop,"studyfix-assignment-listener");acceptThread.setDaemon(true);acceptThread.start();System.out.println("StudyFix assignment listener chạy ở cổng "+port());}
  private void acceptLoop(){while(!closed.get()){try{Socket s=listener.accept();if(closed.get()){s.close();continue;}s.setSoTimeout(15000);s.setTcpNoDelay(true);try{handlers.execute(()->serve(s));}catch(RejectedExecutionException e){s.close();}}catch(IOException e){if(!closed.get())System.err.println("Assignment listener: "+e.getMessage());}}}

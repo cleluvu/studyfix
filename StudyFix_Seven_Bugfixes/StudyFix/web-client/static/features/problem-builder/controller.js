@@ -1,3 +1,4 @@
+import {newStructureRule} from './structure-rules.js';
 import {renderBuilderDialog} from "./dialog.js";
 import {configureBuilderWorkflow,workflowClick,refreshBuilderWorkflow,loadReviewInbox} from "./workflow-controller.js";
 import {updateStatementPreview} from "./statement-step.js";
@@ -20,7 +21,7 @@ const key=()=>`studyfix.builder.active.${state.identity?.userId}`;
 const valid=()=>state.identity?.role==="TEACHER"&&state.identity.userId===b.owner&&state.token===b.token;
 function remember(id){try{id?sessionStorage.setItem(key(),id):sessionStorage.removeItem(key());}catch(_){} }
 function scope(){if(b.owner===state.identity?.userId&&b.token===state.token)return;clearTimeout(timer);clearBuilderAssets();generation++;pending=null;Object.assign(b,{owner:state.identity?.userId||"",token:state.token,record:null,payload:null,items:[],weeks:[],capabilities:null,step:1,busy:false,saving:false,dirty:false,error:"",conflict:false,lastSaved:0,open:false,onChanged:null,uploading:false,compile:null,workflow:null,reviewers:[],reviews:[],reviewing:null,selectedTests:new Set(),publishedExerciseId:null});}
-function setRecord(record,compile=null){b.record=record;const base=defaults();b.payload={...base,...record.payload,template:{...base.template,...record.payload.template},grading:{...base.grading,...record.payload.grading}};if(b.payload.grading.checker==="LEGACY_NORMALIZED")b.payload.grading.checker="TOKEN";b.workflow={};b.selectedTests=new Set();b.publishedExerciseId=null;b.step=record.currentStep;b.dirty=false;b.conflict=false;b.error="";b.compile=compile;b.activePath=null;b.lastSaved=record.updatedAt;remember(record.id);void refreshBuilderWorkflow().then(()=>{if(valid()&&b.record?.id===record.id&&!b.dirty)render();}).catch(e=>{if(valid()&&b.record?.id===record.id){b.error=e.message;status();}});}
+function setRecord(record,compile=null){b.record=record;const base=defaults();b.payload={...base,...record.payload,template:{...base.template,...record.payload.template},grading:{...base.grading,...record.payload.grading}};b.payload.grading.structure={schemaVersion:1,enabled:false,weight:30,gate:false,rules:[],...b.payload.grading.structure};if(b.payload.grading.checker==="LEGACY_NORMALIZED")b.payload.grading.checker="TOKEN";b.workflow={};b.selectedTests=new Set();b.publishedExerciseId=null;b.step=record.currentStep;b.dirty=false;b.conflict=false;b.error="";b.compile=compile;b.activePath=null;b.lastSaved=record.updatedAt;remember(record.id);void refreshBuilderWorkflow().then(()=>{if(valid()&&b.record?.id===record.id&&!b.dirty)render();}).catch(e=>{if(valid()&&b.record?.id===record.id){b.error=e.message;status();}});}
 function status(){if(!valid())return;const el=document.getElementById("builder-save-status");if(el)el.textContent=b.conflict?"Xung đột — cần mở lại":b.saving?"Đang lưu…":b.dirty?"Chưa lưu":`Đã lưu r${b.record?.revision||0}`;const err=document.getElementById("builder-error");if(err){err.innerHTML=esc(b.error)+(b.conflict?'<button class="btn btn-soft" data-action="builder-reload">Mở bản trên server</button>':"");err.hidden=!b.error;} }
 export async function loadBuilder({resume=true}={}){scope();if(state.identity?.role!=="TEACHER")return;b.busy=true;try{
  const token=state.token,[cap,list,weeks]=await Promise.all([builderApi("CAPABILITIES"),builderApi("LIST"),assignment("PRACTICE_WEEK_LIST")]);if(token!==state.token)return;b.capabilities=cap;b.items=list.drafts||[];b.weeks=weeks.weeks||[];await loadReviewInbox();
@@ -34,11 +35,12 @@ function changed(){const banner=document.querySelector(".pb-validation-banner");
 function writableFile(){b.payload.template.files=templateFiles(b).map(file=>({...file}));return activeTemplateFile(b);}
 function sourceChanged(value){if(!valid()||!b.open||b.step!==3)return;const file=writableFile();file.content=value;if(file.path==="Main.java")b.payload.template.source=value;changed();}
 async function open(id){if(b.dirty&&!await saveBuilder())return;const epoch=generation,result=await builderApi("GET",{draftId:id});if(epoch!==generation||!valid())return;setRecord(result.draft,result.compile);render();}
-async function newDraft(){if(b.dirty&&!await saveBuilder())return;const epoch=generation;const {code}=await builderApi("SUGGEST_CODE");if(epoch!==generation||!valid())return;const result=await builderApi("CREATE",{requestKey:cryptoRandomId(),payload:{...defaults(),code}});if(epoch!==generation||!valid())return;setRecord(result.draft,result.compile);render();}
+async function newDraft(){if(b.dirty&&!await saveBuilder())return;const epoch=generation;const {code}=await builderApi("SUGGEST_CODE");if(epoch!==generation||!valid())return;const result=await builderApi("CREATE",{requestKey:cryptoRandomId(),payload:{...defaults(),code,bankScope:state.creationBankScope||"PRACTICE",visibility:state.creationBankScope==="EXAM_PRIVATE"?"PRIVATE":"PUBLIC"}});if(epoch!==generation||!valid())return;setRecord(result.draft,result.compile);render();}
+export async function openBuilderPage(){scope();if(!valid())return;if(!b.open){if(b.dirty&&!await saveBuilder())return;clearBuilderAssets();Object.assign(b,{record:null,payload:null,workflow:null,step:1,dirty:false,error:"",conflict:false,compile:null});remember("");}b.open=true;await loadBuilder({resume:false});}
 export async function openBuilderDialog(onChanged=null,baseExerciseId=""){
  scope();if(!valid()||b.busy||b.uploading)return;if(b.dirty&&!await saveBuilder())return;
  clearBuilderAssets();Object.assign(b,{record:null,payload:null,workflow:null,step:1,dirty:false,error:"",conflict:false,compile:null});
- b.onChanged=onChanged;state.page="exercises";state.exerciseMode="practice";state.bankView="all";b.open=true;b.busy=true;render();
+ b.onChanged=onChanged;state.page="exercises";state.exerciseMode="practice";state.bankView="create";b.open=true;b.busy=true;render();
  try{await loadBuilder({resume:false});if(!valid()||!b.open||b.error)return;b.busy=true;if(baseExerciseId){const result=await builderApi("CREATE",{requestKey:cryptoRandomId(),baseExerciseId});if(valid()&&b.open)setRecord(result.draft,result.compile);}else await newDraft();}
  catch(error){if(valid())b.error=error.message;}finally{b.busy=false;render();}
 }
@@ -46,12 +48,17 @@ export async function editExerciseInBuilder(id,onChanged=null){return openBuilde
 async function closeBuilderDialog(){
  if(b.uploading||b.busy){b.error="Chờ thao tác hiện tại hoàn tất trước khi đóng.";status();return;}
  if(b.dirty&&!await saveBuilder())return;
- const callback=b.onChanged;b.open=false;disposeBuilderEditor();clearModal();render();
- document.querySelector('[data-action="practice-create"]')?.focus({preventScroll:true});
+ const callback=b.onChanged,destination=b.payload?.bankScope==="EXAM_PRIVATE"?"private":"all";
+ b.open=false;b.onChanged=null;disposeBuilderEditor();clearModal();
+ if(["PUBLISHED","ARCHIVED"].includes(b.workflow?.state)){remember("");b.record=null;b.payload=null;b.workflow=null;b.publishedExerciseId=null;}
+ const {practiceClick}=await import("../exercises/practice.js");await practiceClick("practice-view",{view:destination});
+ window.scrollTo({top:0,behavior:"instant"});
  if(callback)try{await callback();}catch(error){console.warn("Question bank refresh failed",error);}
 }
-export async function builderClick(action,d){scope();if(!valid())return;if(action==="builder-close"){await closeBuilderDialog();return;}if(b.busy||!b.open)return;b.error="";
+export async function builderClick(action,d){scope();if(!valid())return;if(action==="builder-close"||action==="builder-finish"){await closeBuilderDialog();return;}if(b.busy||!b.open)return;b.error="";
  try{
+  if(action==="builder-structure-add"){b.payload.grading.structure??={schemaVersion:1,enabled:true,weight:30,gate:false,rules:[]};b.payload.grading.structure.rules.push(newStructureRule(b));changed();render();return;}
+  if(action==="builder-structure-remove"){b.payload.grading.structure.rules=b.payload.grading.structure.rules.filter(r=>r.id!==d.id);changed();render();return;}
   if(await workflowClick(action,d))return;
   if(b.uploading)throw Error("Đang tải file, vui lòng chờ hoàn tất.");
   if(action==="builder-compile"){if(b.dirty&&!await saveBuilder())return;const id=b.record.id,epoch=generation;b.busy=true;render();try{const result=await builderApi("COMPILE",{draftId:id,expectedRevision:b.record.revision});if(epoch===generation&&valid()&&b.record?.id===id)b.compile=result.compile;}finally{b.busy=false;render();}return;}
@@ -86,7 +93,9 @@ document.addEventListener("input",event=>{
  if(el.dataset.builderSource){sourceChanged(el.value);return;}
  if(el.hasAttribute("data-builder-file-visibility")){const file=writableFile();file.visibility=el.value;if(el.value!=="PUBLIC")file.editable=false;changed();render();return;}
  if(el.hasAttribute("data-builder-file-editable")){writableFile().editable=el.checked;changed();return;}
- if(el.dataset.builderField){const path=el.dataset.builderField.split(".");let data=b.payload;while(path.length>1){const part=path.shift();data=data[part]??={};}data[path[0]]=el.type==="checkbox"?el.checked:el.type==="number"?(el.value===""?null:Number(el.value)):el.value;changed();if(b.step===2)updateStatementPreview(b);if(el.type==="radio"){el.closest("fieldset")?.querySelectorAll("label").forEach(label=>label.classList.toggle("active",!!label.querySelector("input:checked")));}for(const [id,value] of [["pb-summary-structure",b.payload.javaStructure],["pb-summary-difficulty",b.payload.difficulty]]){const node=document.getElementById(id);if(node)node.textContent=value;}}
+ if(el.dataset.structureRule){const r=b.payload.grading.structure.rules.find(r=>r.id===el.dataset.ruleId);if(!r)return;const k=el.dataset.structureRule;r[k]=el.type==="checkbox"?el.checked:k==="weight"?Number(el.value):["parameters","modifiers","forbiddenModifiers"].includes(k)?el.value.split(";").map(s=>s.trim()).filter(Boolean):el.value;if(k==="kind"){r.type=el.value==="TYPE"?"CLASS":"";r.visibility="";r.name="";r.parameters=[];r.target="";}changed();if(k==="kind")render();return;}
+ if(el.dataset.action==="builder-structure-toggle"){b.payload.grading.structure??={schemaVersion:1,weight:30,gate:false,rules:[]};b.payload.grading.structure.enabled=el.checked;if(el.checked&&!b.payload.grading.structure.rules.length)b.payload.grading.structure.rules.push(newStructureRule(b));changed();render();return;}
+ if(el.dataset.builderField){const path=el.dataset.builderField.split(".");let data=b.payload;while(path.length>1){const part=path.shift();data=data[part]??={};}data[path[0]]=el.type==="checkbox"?el.checked:el.type==="number"?(el.value===""?null:Number(el.value)):el.value;if(el.dataset.builderField==="bankScope")b.payload.visibility=el.value==="EXAM_PRIVATE"?"PRIVATE":"PUBLIC";changed();if(b.step===2)updateStatementPreview(b);if(el.type==="radio"){el.closest("fieldset")?.querySelectorAll("label").forEach(label=>label.classList.toggle("active",!!label.querySelector("input:checked")));}for(const [id,value] of [["pb-summary-structure",b.payload.javaStructure],["pb-summary-difficulty",b.payload.difficulty]]){const node=document.getElementById(id);if(node)node.textContent=value;}}
  if(el.dataset.builderField==="javaStructure"&&!b.payload.template.files&&/class Main\b/.test(b.payload.template.source||"")){const name=el.value==="PROGRAM"?"Main":el.value==="METHOD"?"Solution":"Student";b.payload.template={mainClass:name,entryFile:name+".java",source:el.value==="PROGRAM"?defaults().template.source:`public class ${name} {\n    // TODO: implement API described in the problem\n}\n`};}
  if(el.dataset.builderWeek){const ids=new Set(b.payload.weekIds||[]);el.checked?ids.add(el.dataset.builderWeek):ids.delete(el.dataset.builderWeek);b.payload.weekIds=[...ids];changed();}
 });

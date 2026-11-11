@@ -26,7 +26,7 @@ async function main(){
   assert.match(await evaluate('document.body.innerText'),/Tổng quan học sinh/);assert.equal(await evaluate('document.querySelectorAll(".student-portal .sp-metric").length'),4);passed.push('student login overview and live metrics');
   for(const page of ['overview','student-classes','student-ranking','student-progress','exercises','exam-organization']){
    await evaluate(`(async()=>{await (await import('/core/polling.js')).navigate(${JSON.stringify(page)})})()`);
-   await wait(`document.body.innerText.includes(${JSON.stringify(({overview:'Tổng quan học sinh','student-classes':'Lớp học của tôi','student-ranking':'Bảng xếp hạng','student-progress':'Tiến độ học tập',exercises:'Tất cả bài tập','exam-organization':'Kỳ thi của tôi'})[page])})`);
+   await wait(`document.body.innerText.includes(${JSON.stringify(({overview:'Tổng quan học sinh','student-classes':'Lớp học của tôi','student-ranking':'Bảng xếp hạng','student-progress':'Tiến độ học tập',exercises:'Luyện tập lập trình','exam-organization':'Kỳ thi của tôi'})[page])})`);
    for(const width of [1440,1024,768,390]){
     await c('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});await delay(350);
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,`${page}: overflow at ${width}`);
